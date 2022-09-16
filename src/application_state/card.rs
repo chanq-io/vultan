@@ -21,7 +21,7 @@ impl Card {
         answer: String,
         revision_settings: RevisionSettings,
     ) -> Self {
-        Card {
+        Self {
             id,
             tags,
             question,
@@ -38,7 +38,7 @@ impl Card {
 }
 
 #[cfg(test)]
-mod card_tests {
+mod unit_tests {
     use super::*;
     use chrono::Utc;
 
