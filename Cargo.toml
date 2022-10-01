@@ -8,3 +8,4 @@ authors = ["Pierre Chanquion <{FORENAME}.{FIRST_FIVE_LETTERS_OF_SURNAME}.io>"]
 
 [dependencies]
 chrono = "0.4"
+regex = "1"

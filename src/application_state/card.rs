@@ -1,6 +1,6 @@
+mod parser;
 mod revision_settings;
 mod score;
-mod text_file;
 
 use revision_settings::RevisionSettings;
 
@@ -29,6 +29,7 @@ impl Card {
             revision_settings,
         }
     }
+
     fn clone_with_revision_settings(&self, revision_settings: RevisionSettings) -> Self {
         Card {
             revision_settings,
