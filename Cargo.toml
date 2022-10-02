@@ -1,5 +1,5 @@
 [package]
-name = "clanki"
+name = "gibbon"
 version = "0.1.0"
 edition = "2021"
 authors = ["Pierre Chanquion <{FORENAME}.{FIRST_FIVE_LETTERS_OF_SURNAME}.io>"]

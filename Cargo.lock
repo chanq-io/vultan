@@ -54,15 +54,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clanki"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "mockall",
- "regex",
-]
-
-[[package]]
 name = "core-foundation-sys"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -100,6 +91,15 @@ name = "fragile"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85dcb89d2b10c5f6133de2efd8c11959ce9dbb46a2f7a4cab208c4eeda6ce1ab"
+
+[[package]]
+name = "gibbon"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "mockall",
+ "regex",
+]
 
 [[package]]
 name = "iana-time-zone"
