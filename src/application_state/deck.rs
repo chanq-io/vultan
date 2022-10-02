@@ -1,7 +1,7 @@
 pub struct Deck<'a> {
     tag: String,
     card_paths: Vec<&'a str>,
-    exponential_backoff_settings: IntervalCoefficients,
+    interval_coefficients: IntervalCoefficients,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -16,7 +16,7 @@ impl IntervalCoefficients {
         Self {
             pass_coef,
             easy_coef,
-            fail_coef
+            fail_coef,
         }
     }
 }
@@ -28,10 +28,10 @@ mod unit_tests {
     #[test]
     fn new_interval_coefficients() {
         let (pass_coef, easy_coef, fail_coef) = (1.0, 2.0, 3.0);
-        let expected = IntervalCoefficients{
+        let expected = IntervalCoefficients {
             pass_coef,
             easy_coef,
-            fail_coef
+            fail_coef,
         };
         let actual = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
         assert_eq!(expected, actual);

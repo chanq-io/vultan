@@ -59,7 +59,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "mockall",
- "mockall_double",
  "regex",
 ]
 
@@ -181,18 +180,6 @@ name = "mockall_derive"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86d702a0530a0141cf4ed147cf5ec7be6f2c187d4e37fcbefc39cf34116bfe8f"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "mockall_double"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae71c7bb287375187c775cf82e2dcf1bef3388aaf58f0789a77f9c7ab28466f6"
 dependencies = [
  "cfg-if",
  "proc-macro2",

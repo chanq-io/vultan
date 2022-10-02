@@ -1,4 +1,4 @@
-pub mod parser;
+pub mod parser; // TODO only ParsingConfig & ParsingPattern should be exposed publically
 mod revision_settings;
 mod score;
 
@@ -69,6 +69,19 @@ mod mocks {
         }
     }
 }
+#[cfg(test)]
+pub mod assertions {
+    use super::*;
+    use revision_settings::assertions::assert_near as assert_revision_settings_near;
+
+    pub fn assert_near(a: &Card, b: &Card) {
+        assert_eq!(a.path, b.path);
+        assert_eq!(a.tags, b.tags);
+        assert_eq!(a.question, b.question);
+        assert_eq!(a.answer, b.answer);
+        assert_revision_settings_near(&a.revision_settings, &b.revision_settings, 2);
+    }
+}
 
 #[cfg(test)]
 mod unit_tests {
@@ -77,7 +90,6 @@ mod unit_tests {
     use mockall::predicate::eq;
     use parser::MockParser;
     use parser::ParsedCardFields;
-    use revision_settings::assertions::assert_near as assert_revision_settings_near;
 
     fn make_fake_parsed_fields(
         tags: Vec<&'static str>,
@@ -125,14 +137,6 @@ mod unit_tests {
         mock_parser
     }
 
-    fn assert_cards_approx_equal(a: &Card, b: &Card) {
-        assert_eq!(a.path, b.path);
-        assert_eq!(a.tags, b.tags);
-        assert_eq!(a.question, b.question);
-        assert_eq!(a.answer, b.answer);
-        assert_revision_settings_near(&a.revision_settings, &b.revision_settings, 2);
-    }
-
     #[test]
     fn from() {
         let filepath = "hello";
@@ -140,11 +144,11 @@ mod unit_tests {
         let mock_parser = make_mock_parser(filepath, Result::Ok(parsed_fields.clone()));
         let expected = make_expected_card(filepath, &parsed_fields, RevisionSettings::default());
         let actual = Card::from(filepath, &mock_parser).unwrap();
-        assert_cards_approx_equal(&expected, &actual);
+        assertions::assert_near(&expected, &actual);
     }
 
     #[test]
-    fn from_where_parser_returns_error() {
+    fn from_where_parser_fails() {
         let filepath = "hello";
         let parsed_fields = make_fake_parsed_fields(vec!["tag"], "what?", "that");
         let parser_error = Result::Err(filepath.to_string());

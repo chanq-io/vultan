@@ -91,10 +91,11 @@ impl RevisionSettings {
     ) -> IntervalCalculationSettings<'a> {
         let present = Utc::now();
         let past = self.due;
+        let days_overdue_quantised_by_hour =
+            (present.signed_duration_since(past).num_hours() as f64) / 24.0;
         IntervalCalculationSettings {
             coefficients,
-            days_overdue: present.signed_duration_since(past).num_days() as f64,
-            // TODO: this should probably be an accurate float otherwise we're discarding info
+            days_overdue: days_overdue_quantised_by_hour,
         }
     }
 
@@ -198,27 +199,31 @@ mod unit_tests {
 
     #[test]
     fn create_interval_calculation_settings() {
-        let n_days_overdue = 123.0;
-        let due = Utc::now() - Duration::days(n_days_overdue as i64);
-        let pass_coef = 1.0;
-        let easy_coef = 2.0;
-        let fail_coef = 3.0;
-        let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
-        let expected = make_interval_calculation_settings(&coefficients, n_days_overdue);
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
+        let n_days_overdue = 123;
+        let due = Utc::now() - Duration::days(n_days_overdue);
+        let coefficients = IntervalCoefficients::new(1.0, 2.0, 6.0);
+        let expected = make_interval_calculation_settings(&coefficients, n_days_overdue as f64);
+        let revision_settings = RevisionSettings::new(due, 1.0, 1.0);
         let actual = revision_settings.create_interval_calculation_settings(&coefficients);
+        assert_eq!(expected, actual);
     }
 
-    #[ignore]
     #[test]
     fn create_interval_calculation_settings_when_days_overdue_is_fractional() {
-        assert!(false);
+        let n_days_overdue = 0.5;
+        let due = Utc::now() - Duration::hours(12);
+        let coefficients = IntervalCoefficients::new(8.0, 5.0, 3.0);
+        let expected = make_interval_calculation_settings(&coefficients, n_days_overdue);
+        let revision_settings = RevisionSettings::new(due, 1.0, 1.0);
+        let actual = revision_settings.create_interval_calculation_settings(&coefficients);
+        assert_eq!(expected, actual);
     }
 
     #[test]
     fn calculate_fail_interval_where_fail_coef_is_0() {
+        let fail_coef = 0.0;
         let revision_settings = RevisionSettings::new(Utc::now(), 24.0, 1.0);
-        let coefficients = IntervalCoefficients::new(1e10, 1e10, 0.0);
+        let coefficients = IntervalCoefficients::new(1e10, 1e10, fail_coef);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
         let expected = 0.0;
         let actual = revision_settings.calculate_fail_interval(&calculation_settings);
@@ -227,8 +232,9 @@ mod unit_tests {
 
     #[test]
     fn calculate_fail_interval_where_fail_coef_is_non_0() {
+        let fail_coef = 10.0;
         let revision_settings = RevisionSettings::new(Utc::now(), 24.0, 1.0);
-        let coefficients = IntervalCoefficients::new(1e10, 1e10, 10.0);
+        let coefficients = IntervalCoefficients::new(1e10, 1e10, fail_coef);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
         let expected = 240.0;
         let actual = revision_settings.calculate_fail_interval(&calculation_settings);
@@ -261,11 +267,10 @@ mod unit_tests {
     #[test]
     fn calculate_hard_interval() {
         let interval = 1.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), interval, 1.0);
-        let days_overdue = 4.0;
         let pass_coef = 1.0;
+        let revision_settings = RevisionSettings::new(Utc::now(), interval, 1.0);
         let coefficients = IntervalCoefficients::new(pass_coef, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, days_overdue);
+        let calculation_settings = make_interval_calculation_settings(&coefficients, 4.0);
         let expected = 2.4;
         let actual = revision_settings.calculate_hard_interval(&calculation_settings);
         assert_eq!(expected, actual);
@@ -299,10 +304,10 @@ mod unit_tests {
 
     #[test]
     fn calculate_pass_interval_where_hard_interval_is_already_high() {
+        let hard_interval = 100.0;
         let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
         let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let hard_interval = 100.0;
         let expected = hard_interval + 1.0;
         let actual =
             revision_settings.calculate_pass_interval(&calculation_settings, hard_interval);
@@ -312,10 +317,10 @@ mod unit_tests {
     #[test]
     fn calculate_pass_interval() {
         let interval = 10.0;
-        let factor = 1000.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), interval, factor);
-        let days_overdue = 20.0;
+        let memorisation_factor = 1000.0;
         let pass_coef = 5.0;
+        let revision_settings = RevisionSettings::new(Utc::now(), interval, memorisation_factor);
+        let days_overdue = 20.0;
         let hard_interval = 5.0;
         let coefficients = IntervalCoefficients::new(pass_coef, 1.3, 0.0);
         let calculation_settings = make_interval_calculation_settings(&coefficients, days_overdue);
@@ -327,10 +332,10 @@ mod unit_tests {
 
     #[test]
     fn calculate_easy_interval_when_pass_interval_is_already_high() {
+        let pass_interval = 100.0;
         let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
         let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let pass_interval = 100.0;
         let expected = pass_interval + 1.0;
         let actual =
             revision_settings.calculate_easy_interval(&calculation_settings, pass_interval);
@@ -352,8 +357,8 @@ mod unit_tests {
 
     #[test]
     fn calculate_easy_interval_when_pass_coef_is_0() {
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
         let pass_coef = 0.0;
+        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
         let coefficients = IntervalCoefficients::new(pass_coef, 0.1, 0.1);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
         let pass_interval = 1.0;
@@ -365,8 +370,8 @@ mod unit_tests {
 
     #[test]
     fn calculate_easy_interval_when_easy_coef_is_0() {
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
         let easy_coef = 0.0;
+        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
         let coefficients = IntervalCoefficients::new(0.1, easy_coef, 0.1);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
         let pass_interval = 1.0;
@@ -379,8 +384,8 @@ mod unit_tests {
     #[test]
     fn calculate_easy_interval() {
         let interval = 10.0;
-        let factor = 2000.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), interval, factor);
+        let memorisation_factor = 2000.0;
+        let revision_settings = RevisionSettings::new(Utc::now(), interval, memorisation_factor);
         let days_overdue = 20.0;
         let pass_coef = 5.0;
         let easy_coef = 100.0;

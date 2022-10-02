@@ -10,4 +10,3 @@ authors = ["Pierre Chanquion <{FORENAME}.{FIRST_FIVE_LETTERS_OF_SURNAME}.io>"]
 chrono = "0.4"
 regex = "1"
 mockall = "0.11"
-mockall_double = "0.3"
