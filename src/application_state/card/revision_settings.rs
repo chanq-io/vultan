@@ -27,6 +27,14 @@ impl RevisionSettings {
         }
     }
 
+    pub fn default() -> Self {
+        Self {
+            due: Utc::now(),
+            interval: 0.0,
+            memorisation_factor: 1300.0,
+        }
+    }
+
     pub fn transform(self, score: Score, coefficients: &IntervalCoefficients) -> Self {
         let new_interval = self.calculate_new_interval(&score, &coefficients);
         Self {
@@ -128,6 +136,23 @@ impl RevisionSettings {
 }
 
 #[cfg(test)]
+pub mod assertions {
+    use super::*;
+    pub fn assert_near(
+        a: &RevisionSettings,
+        b: &RevisionSettings,
+        due_difference_tolerance_in_seconds: i64,
+    ) {
+        assert_eq!(a.interval, b.interval);
+        assert_eq!(a.memorisation_factor, b.memorisation_factor);
+        assert!(
+            a.due.signed_duration_since(b.due).num_seconds().abs()
+                < due_difference_tolerance_in_seconds
+        );
+    }
+}
+
+#[cfg(test)]
 mod unit_tests {
     use super::*;
     use chrono::Duration;
@@ -147,7 +172,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn new_revision_settings() {
+    fn new() {
         let due = Utc::now();
         let interval = 123.0;
         let memorisation_factor = 234.5;
@@ -158,6 +183,17 @@ mod unit_tests {
         };
         let actual = RevisionSettings::new(due, interval, memorisation_factor);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn default() {
+        let expected = RevisionSettings {
+            due: Utc::now(),
+            interval: 0.0,
+            memorisation_factor: 1300.0,
+        };
+        let actual = RevisionSettings::default();
+        assertions::assert_near(&expected, &actual, 2);
     }
 
     #[test]

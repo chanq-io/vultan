@@ -1,3 +1,3 @@
 #![allow(dead_code)] // TODO remove
 #![allow(unused_variables)] // TODO remove
-mod application_state;
+pub mod application_state;

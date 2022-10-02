@@ -19,30 +19,30 @@ pub enum ParsingPattern {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParsedCardFields<'a> {
     pub tags: Vec<&'a str>,
     pub question: &'a str,
     pub answer: &'a str,
 }
 
-trait Parse<'a> {
-    fn parse(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String>;
+pub trait Parse {
+    fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String>;
 }
 
 #[derive(Debug)]
-pub struct Parser<'a> {
+pub struct Parser {
     tags_expression: Regex,
-    tag_delimiter: &'a str,
+    tag_delimiter: String,
     question_expression: Regex,
     answer_expression: Regex,
 }
 
-impl<'a> Parser<'a> {
-    pub fn from(user_config: &'a ParsingConfig) -> Result<Self, String> {
+impl Parser {
+    pub fn from(user_config: ParsingConfig) -> Result<Self, String> {
         let partial_error = format!("Couldn't make Parser for {:?}", &user_config);
         Ok(Self {
-            tag_delimiter: &user_config.tag_delimiter,
+            tag_delimiter: user_config.tag_delimiter,
             tags_expression: Self::make_regex(&user_config.tags_pattern, &partial_error)?,
             question_expression: Self::make_regex(&user_config.question_pattern, &partial_error)?,
             answer_expression: Self::make_regex(&user_config.answer_pattern, &partial_error)?,
@@ -65,11 +65,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_string(&self, expression: &Regex, input: &'a str) -> Option<&'a str> {
+    fn parse_string<'a>(&self, expression: &Regex, input: &'a str) -> Option<&'a str> {
         Some(expression.captures(input)?.get(1)?.as_str().trim())
     }
 
-    fn parse_tags(&self, input: &'a str) -> Option<Vec<&'a str>> {
+    fn parse_tags<'a>(&self, input: &'a str) -> Option<Vec<&'a str>> {
         Some(
             self.parse_string(&self.tags_expression, input)?
                 .split(&self.tag_delimiter)
@@ -93,8 +93,8 @@ impl<'a> Parser<'a> {
 
 }
 
-impl<'a> Parse<'a> for Parser<'a> {
-    fn parse(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String> {
+impl Parse for Parser {
+    fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String> {
         let maybe_tags = self.parse_tags(input);
         let maybe_question = self.parse_string(&self.question_expression, input);
         let maybe_answer = self.parse_string(&self.answer_expression, input);
@@ -103,6 +103,17 @@ impl<'a> Parse<'a> for Parser<'a> {
             question: self.error_if_none(maybe_question, "QUESTION", &self.question_expression)?,
             answer: self.error_if_none(maybe_answer, "ANSWER", &self.answer_expression)?,
         })
+    }
+}
+
+#[cfg(test)]
+use mockall::*;
+
+#[cfg(test)]
+mock!{
+    pub Parser{}
+    impl Parse for Parser {
+        fn parse(&self, input: &str) -> Result<ParsedCardFields<'static>, String>;
     }
 }
 
@@ -130,9 +141,10 @@ mod unit_tests {
     #[test]
     fn from() {
         let user_config = fake_user_config();
-        let parser = Parser::from(&user_config).unwrap();
+        let expected_delimiter = user_config.tag_delimiter.to_string();
+        let parser = Parser::from(user_config).unwrap();
         assert_eq!(r"tags:(.*)", parser.tags_expression.as_str());
-        assert_eq!(user_config.tag_delimiter, parser.tag_delimiter);
+        assert_eq!(expected_delimiter, parser.tag_delimiter);
         assert_eq!(
             r"# Question((?s).*)# Answer",
             parser.question_expression.as_str()
@@ -146,7 +158,7 @@ mod unit_tests {
         user_config.tags_pattern = ParsingPattern::TaggedLine {
             tag: String::from(r"(("),
         };
-        let error = Parser::from(&user_config);
+        let error = Parser::from(user_config);
         assert!(error.is_err());
         assert!(error
             .unwrap_err()
@@ -159,7 +171,7 @@ mod unit_tests {
         user_config.question_pattern = ParsingPattern::TaggedLine {
             tag: String::from(r"(("),
         };
-        let error = Parser::from(&user_config);
+        let error = Parser::from(user_config);
         assert!(error.is_err());
         assert!(error
             .unwrap_err()
@@ -172,7 +184,7 @@ mod unit_tests {
         user_config.answer_pattern = ParsingPattern::TaggedLine {
             tag: String::from(r"(("),
         };
-        let error = Parser::from(&user_config);
+        let error = Parser::from(user_config);
         assert!(error.is_err());
         assert!(error
             .unwrap_err()
@@ -182,7 +194,7 @@ mod unit_tests {
     #[test]
     fn parse_with_default_config() {
         let user_config = fake_user_config();
-        let parser = Parser::from(&user_config).unwrap();
+        let parser = Parser::from(user_config).unwrap();
         let expected_tags = vec!["a", "b", "c"];
         let expected_question = "What is the \n answer to life,\n the universe\nand everything?";
         let expected_answer = "42";
@@ -216,13 +228,14 @@ mod unit_tests {
                 tag: String::from(r"Answer:"),
             },
         };
-        let parser = Parser::from(&user_config).unwrap();
+        let expected_delimiter = user_config.tag_delimiter.to_string();
         let expected_tags = vec!["a", "b", "c"];
         let expected_question = "What is the answer to life, the universe and everything?";
         let expected_answer = "42";
+        let parser = Parser::from(user_config).unwrap();
         let input = format!(
             "some noise\nDecks: {}\nQuestion: {}\nAnswer: {}\nsome noise",
-            expected_tags.join(&user_config.tag_delimiter),
+            expected_tags.join(&expected_delimiter),
             expected_question,
             expected_answer
         );
@@ -235,7 +248,7 @@ mod unit_tests {
     #[test]
     fn parse_where_tags_expression_has_no_captures() {
         let user_config = fake_user_config();
-        let parser = Parser::from(&user_config).unwrap();
+        let parser = Parser::from(user_config).unwrap();
         let input = "---\na_key: a_value\nanother_key: another_value\n---\n# Question\n\
                      a question?\n# Answer \nan answer\n\n----\nBacklink: SOMELINK\n";
         let actual = parser.parse(&input);
@@ -248,7 +261,7 @@ mod unit_tests {
     #[test]
     fn parse_where_question_expression_has_no_captures() {
         let user_config = fake_user_config();
-        let parser = Parser::from(&user_config).unwrap();
+        let parser = Parser::from(user_config).unwrap();
         let input = "---\ntags: :a:\nanother_key: another_value\n---\n# A Question\n\
                      a question?\n# Answer \nan answer\n\n----\nBacklink: SOMELINK\n";
         let actual = parser.parse(&input);
@@ -261,7 +274,7 @@ mod unit_tests {
     #[test]
     fn parse_where_answer_expression_has_no_captures() {
         let user_config = fake_user_config();
-        let parser = Parser::from(&user_config).unwrap();
+        let parser = Parser::from(user_config).unwrap();
         let input = "---\ntags: :a:\nanother_key: another_value\n---\n# Question\n\
                      a question?\n# Answer \nan answer\n\n--_--\nBacklink: SOMELINK\n";
         let actual = parser.parse(&input);

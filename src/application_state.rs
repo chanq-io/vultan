@@ -1,6 +1,6 @@
-mod card;
-mod deck;
-mod hand;
+pub mod card;
+pub mod deck;
+pub mod hand;
 
 use deck::Deck;
 use card::Card;
