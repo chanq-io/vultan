@@ -1,12 +1,12 @@
 use super::card::Card;
 use super::deck::Deck;
 
-pub struct Hand {
-    cards: Vec<Card>,
+pub struct Hand<'a> {
+    cards: Vec<&'a Card>,
 }
 
-impl Hand {
-    pub fn deal(deck: &Deck, cards: &Vec<Card>) -> Hand {
+impl<'a> Hand<'a> {
+    pub fn deal(deck: &Deck, cards: &'a Vec<Card>) -> Hand<'a> {
         Hand { cards: Vec::new() }
     }
 
