@@ -27,14 +27,6 @@ impl RevisionSettings {
         }
     }
 
-    pub fn default() -> Self {
-        Self {
-            due: Utc::now(),
-            interval: 0.0,
-            memorisation_factor: 1300.0,
-        }
-    }
-
     pub fn transform(self, score: Score, coefficients: &IntervalCoefficients) -> Self {
         let new_interval = self.calculate_new_interval(&score, &coefficients);
         Self {
@@ -134,6 +126,13 @@ impl RevisionSettings {
         let easy_coef = calculation_settings.coefficients.easy_coef;
         fallback.max(base_num_days * memorisation_coef * pass_coef * easy_coef)
     }
+}
+
+impl Default for RevisionSettings {
+    fn default() -> Self {
+        Self::new(Utc::now(), 0.0, 1300.0)
+    }
+
 }
 
 #[cfg(test)]

@@ -8,5 +8,7 @@ authors = ["Pierre Chanquion <{FORENAME}.{FIRST_FIVE_LETTERS_OF_SURNAME}.io>"]
 
 [dependencies]
 chrono = "0.4"
-regex = "1"
 mockall = "0.11"
+regex = "1"
+ron = "0.8"
+serde = { version = "1", features = ["derive"] }

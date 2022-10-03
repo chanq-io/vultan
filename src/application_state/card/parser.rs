@@ -8,8 +8,8 @@ pub struct ParsingConfig {
     pub answer_pattern: ParsingPattern,
 }
 
-impl ParsingConfig {
-    pub fn default() -> Self {
+impl Default for ParsingConfig {
+    fn default() -> Self {
         Self {
             decks_pattern: ParsingPattern::TaggedLine {
                 tag: String::from(r"tags:"),

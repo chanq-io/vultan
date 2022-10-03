@@ -5,7 +5,7 @@ pub mod hand;
 use deck::Deck;
 use card::Card;
 
-struct ApplicationState<'a> {
-    decks: Vec<Deck<'a>>,
+struct ApplicationState {
+    decks: Vec<Deck>,
     cards: Vec<Card>
 }
