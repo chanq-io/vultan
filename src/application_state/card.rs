@@ -13,7 +13,7 @@ use std::fs::read_to_string as read_file;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Card {
     pub path: String,
-    pub tags: Vec<String>,
+    pub decks: Vec<String>,
     pub question: String,
     pub answer: String,
     pub revision_settings: RevisionSettings,
@@ -22,14 +22,14 @@ pub struct Card {
 impl Card {
     pub fn new(
         path: String,
-        tags: Vec<String>,
+        decks: Vec<String>,
         question: String,
         answer: String,
         revision_settings: RevisionSettings,
     ) -> Self {
         Self {
             path,
-            tags,
+            decks,
             question,
             answer,
             revision_settings,
@@ -43,7 +43,7 @@ impl Card {
         let parsed_fields = parser.parse(&file_content).map_err(error_formatter)?;
         Ok(Self {
             path: filepath.to_string(),
-            tags: parsed_fields.tags.iter().map(|s| s.to_string()).collect(),
+            decks: parsed_fields.decks.iter().map(|s| s.to_string()).collect(),
             question: parsed_fields.question.to_string(),
             answer: parsed_fields.answer.to_string(),
             revision_settings: RevisionSettings::default(),
@@ -76,7 +76,7 @@ pub mod assertions {
 
     pub fn assert_near(a: &Card, b: &Card) {
         assert_eq!(a.path, b.path);
-        assert_eq!(a.tags, b.tags);
+        assert_eq!(a.decks, b.decks);
         assert_eq!(a.question, b.question);
         assert_eq!(a.answer, b.answer);
         assert_revision_settings_near(&a.revision_settings, &b.revision_settings, 2);
@@ -92,12 +92,12 @@ mod unit_tests {
     use parser::ParsedCardFields;
 
     fn make_fake_parsed_fields(
-        tags: Vec<&'static str>,
+        decks: Vec<&'static str>,
         question: &'static str,
         answer: &'static str,
     ) -> ParsedCardFields<'static> {
         ParsedCardFields {
-            tags,
+            decks,
             question,
             answer,
         }
@@ -118,7 +118,7 @@ mod unit_tests {
     ) -> Card {
         Card {
             path: path.to_string(),
-            tags: parsed_fields.tags.iter().map(|s| s.to_string()).collect(),
+            decks: parsed_fields.decks.iter().map(|s| s.to_string()).collect(),
             question: String::from(parsed_fields.question),
             answer: String::from(parsed_fields.answer),
             revision_settings,
@@ -175,18 +175,18 @@ mod unit_tests {
     #[test]
     fn new() {
         let path = String::from("some-path");
-        let tags = vec![String::from("some-tag")];
+        let decks = vec![String::from("some-tag")];
         let question = String::from("a question?");
         let answer = String::from("an answer.");
         let revision_settings = make_fake_revision_settings(2.0, 3.0);
         let expected = Card {
             path: path.clone(),
-            tags: tags.clone(),
+            decks: decks.clone(),
             question: question.clone(),
             answer: answer.clone(),
             revision_settings: revision_settings.clone(),
         };
-        let actual = Card::new(path, tags, question, answer, revision_settings);
+        let actual = Card::new(path, decks, question, answer, revision_settings);
         assert_eq!(expected, actual);
     }
 
@@ -195,7 +195,7 @@ mod unit_tests {
         fn make_card_with_revision_settings(revision_settings: RevisionSettings) -> Card {
             Card {
                 path: String::from("some-identifier"),
-                tags: vec![String::from("tag_1"), String::from("tag_2")],
+                decks: vec![String::from("tag_1"), String::from("tag_2")],
                 question: String::from("What is the meaning of life, the universe, everything?"),
                 answer: String::from("42"),
                 revision_settings,
