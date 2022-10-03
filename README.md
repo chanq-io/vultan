@@ -1,2 +1,2 @@
-# Gibbon
-A command line Anki-like, spaced repetition studying tool.
+# Vultan
+An Anki-like, spaced repetition studying tool.

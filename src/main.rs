@@ -1,5 +1,5 @@
-use gibbon::application_state::card::parser::{Parser, ParsingConfig, ParsingPattern};
-use gibbon::application_state::card::Card;
+use vultan::application_state::card::parser::{Parser, ParsingConfig, ParsingPattern};
+use vultan::application_state::card::Card;
 use std::error::Error;
 fn main() -> Result<(), Box<dyn Error>> {
     let config = ParsingConfig {
