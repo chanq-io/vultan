@@ -2,8 +2,8 @@ use regex::Regex;
 
 #[derive(Debug)]
 pub struct ParsingConfig {
-    pub tags_pattern: ParsingPattern,
-    pub tag_delimiter: String,
+    pub decks_pattern: ParsingPattern,
+    pub deck_delimiter: String,
     pub question_pattern: ParsingPattern,
     pub answer_pattern: ParsingPattern,
 }
@@ -11,10 +11,10 @@ pub struct ParsingConfig {
 impl ParsingConfig {
     pub fn default() -> Self {
         Self {
-            tags_pattern: ParsingPattern::TaggedLine {
+            decks_pattern: ParsingPattern::TaggedLine {
                 tag: String::from(r"tags:"),
             },
-            tag_delimiter: String::from(":"),
+            deck_delimiter: String::from(":"),
             question_pattern: ParsingPattern::WrappedMultiLine {
                 opening_tag: String::from(r"# Question"),
                 closing_tag: String::from(r"# Answer"),
@@ -40,7 +40,7 @@ pub enum ParsingPattern {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParsedCardFields<'a> {
-    pub tags: Vec<&'a str>,
+    pub decks: Vec<&'a str>,
     pub question: &'a str,
     pub answer: &'a str,
 }
@@ -51,8 +51,8 @@ pub trait Parse {
 
 #[derive(Debug)]
 pub struct Parser {
-    tags_expression: Regex,
-    tag_delimiter: String,
+    decks_expression: Regex,
+    deck_delimiter: String,
     question_expression: Regex,
     answer_expression: Regex,
 }
@@ -61,8 +61,8 @@ impl Parser {
     pub fn from(user_config: ParsingConfig) -> Result<Self, String> {
         let partial_error = format!("Couldn't make Parser for {:?}", &user_config);
         Ok(Self {
-            tag_delimiter: user_config.tag_delimiter,
-            tags_expression: Self::make_regex(&user_config.tags_pattern, &partial_error)?,
+            deck_delimiter: user_config.deck_delimiter,
+            decks_expression: Self::make_regex(&user_config.decks_pattern, &partial_error)?,
             question_expression: Self::make_regex(&user_config.question_pattern, &partial_error)?,
             answer_expression: Self::make_regex(&user_config.answer_pattern, &partial_error)?,
         })
@@ -88,10 +88,10 @@ impl Parser {
         Some(expression.captures(input)?.get(1)?.as_str().trim())
     }
 
-    fn parse_tags<'a>(&self, input: &'a str) -> Option<Vec<&'a str>> {
+    fn parse_decks<'a>(&self, input: &'a str) -> Option<Vec<&'a str>> {
         Some(
-            self.parse_string(&self.tags_expression, input)?
-                .split(&self.tag_delimiter)
+            self.parse_string(&self.decks_expression, input)?
+                .split(&self.deck_delimiter)
                 .filter(|tag| !tag.is_empty())
                 .collect(),
         )
@@ -113,11 +113,11 @@ impl Parser {
 
 impl Parse for Parser {
     fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String> {
-        let maybe_tags = self.parse_tags(input);
+        let maybe_decks = self.parse_decks(input);
         let maybe_question = self.parse_string(&self.question_expression, input);
         let maybe_answer = self.parse_string(&self.answer_expression, input);
         Ok(ParsedCardFields {
-            tags: self.error_if_none(maybe_tags, "TAGS", &self.tags_expression)?,
+            decks: self.error_if_none(maybe_decks, "DECKS", &self.decks_expression)?,
             question: self.error_if_none(maybe_question, "QUESTION", &self.question_expression)?,
             answer: self.error_if_none(maybe_answer, "ANSWER", &self.answer_expression)?,
         })
@@ -146,7 +146,7 @@ mod unit_tests {
 
         #[test]
         fn default() {
-            let expected_tags_pattern = ParsingPattern::TaggedLine {
+            let expected_decks_pattern = ParsingPattern::TaggedLine {
                 tag: String::from(r"tags:"),
             };
             let expected_tag_delimiter = String::from(":");
@@ -159,8 +159,8 @@ mod unit_tests {
                 closing_tag: String::from(r"----\n"),
             };
             let actual = ParsingConfig::default();
-            assert_eq!(expected_tags_pattern, actual.tags_pattern);
-            assert_eq!(expected_tag_delimiter, actual.tag_delimiter);
+            assert_eq!(expected_decks_pattern, actual.decks_pattern);
+            assert_eq!(expected_tag_delimiter, actual.deck_delimiter);
             assert_eq!(expected_question_pattern, actual.question_pattern);
             assert_eq!(expected_answer_pattern, actual.answer_pattern);
         }
@@ -173,10 +173,10 @@ mod unit_tests {
         #[test]
         fn from() {
             let user_config = ParsingConfig::default();
-            let expected_delimiter = user_config.tag_delimiter.to_string();
+            let expected_delimiter = user_config.deck_delimiter.to_string();
             let parser = Parser::from(user_config).unwrap();
-            assert_eq!(r"tags:(.*)", parser.tags_expression.as_str());
-            assert_eq!(expected_delimiter, parser.tag_delimiter);
+            assert_eq!(r"tags:(.*)", parser.decks_expression.as_str());
+            assert_eq!(expected_delimiter, parser.deck_delimiter);
             assert_eq!(
                 r"# Question((?s).*)# Answer",
                 parser.question_expression.as_str()
@@ -185,9 +185,9 @@ mod unit_tests {
         }
 
         #[test]
-        fn from_fails_for_malformed_tags_pattern() {
+        fn from_fails_for_malformed_decks_pattern() {
             let mut user_config = ParsingConfig::default();
-            user_config.tags_pattern = ParsingPattern::TaggedLine {
+            user_config.decks_pattern = ParsingPattern::TaggedLine {
                 tag: String::from(r"(("),
             };
             let error = Parser::from(user_config);
@@ -227,7 +227,7 @@ mod unit_tests {
         fn parse_with_default_config() {
             let user_config = ParsingConfig::default();
             let parser = Parser::from(user_config).unwrap();
-            let expected_tags = vec!["a", "b", "c"];
+            let expected_decks = vec!["a", "b", "c"];
             let expected_question =
                 "What is the \n answer to life,\n the universe\nand everything?";
             let expected_answer = "42";
@@ -235,25 +235,25 @@ mod unit_tests {
                 "---\na_key: a_value\ntags: :{}:\n\
                  another_key: another_value\n---\n# Question\n\
                  {}\n# Answer \n{}\n\n----\nBacklink: SOMELINK\n",
-                expected_tags.join(":"),
+                expected_decks.join(":"),
                 expected_question,
                 expected_answer
             );
 
             let actual = parser.parse(&input).unwrap();
-            assert_eq!(expected_tags, actual.tags);
+            assert_eq!(expected_decks, actual.decks);
             assert_eq!(expected_question, actual.question);
             assert_eq!(expected_answer, actual.answer);
         }
 
         #[test]
-        fn parse_with_multi_line_tags_single_line_question_single_line_answer() {
+        fn parse_with_multi_line_decks_single_line_question_single_line_answer() {
             let user_config = ParsingConfig {
-                tags_pattern: ParsingPattern::WrappedMultiLine {
+                decks_pattern: ParsingPattern::WrappedMultiLine {
                     opening_tag: String::from(r"Decks:"),
                     closing_tag: String::from(r"Question:"),
                 },
-                tag_delimiter: String::from("\n - "),
+                deck_delimiter: String::from("\n - "),
                 question_pattern: ParsingPattern::TaggedLine {
                     tag: String::from(r"Question:"),
                 },
@@ -261,25 +261,25 @@ mod unit_tests {
                     tag: String::from(r"Answer:"),
                 },
             };
-            let expected_delimiter = user_config.tag_delimiter.to_string();
-            let expected_tags = vec!["a", "b", "c"];
+            let expected_delimiter = user_config.deck_delimiter.to_string();
+            let expected_decks = vec!["a", "b", "c"];
             let expected_question = "What is the answer to life, the universe and everything?";
             let expected_answer = "42";
             let parser = Parser::from(user_config).unwrap();
             let input = format!(
                 "some noise\nDecks: {}\nQuestion: {}\nAnswer: {}\nsome noise",
-                expected_tags.join(&expected_delimiter),
+                expected_decks.join(&expected_delimiter),
                 expected_question,
                 expected_answer
             );
             let actual = parser.parse(&input).unwrap();
-            assert_eq!(expected_tags, actual.tags);
+            assert_eq!(expected_decks, actual.decks);
             assert_eq!(expected_question, actual.question);
             assert_eq!(expected_answer, actual.answer);
         }
 
         #[test]
-        fn parse_where_tags_expression_has_no_captures() {
+        fn parse_where_decks_expression_has_no_captures() {
             let user_config = ParsingConfig::default();
             let parser = Parser::from(user_config).unwrap();
             let input = "---\na_key: a_value\nanother_key: another_value\n---\n# Question\n\
@@ -288,7 +288,7 @@ mod unit_tests {
             assert!(actual.is_err());
             assert!(actual
                 .unwrap_err()
-                .contains("Could not match TAGS against pattern"));
+                .contains("Could not match DECKS against pattern"));
         }
 
         #[test]
