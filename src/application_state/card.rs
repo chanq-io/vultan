@@ -1,9 +1,11 @@
 pub mod parser; // TODO only ParsingConfig & ParsingPattern should be exposed publically
-mod revision_settings;
-mod score;
+pub mod revision_settings;// Shouldn't need to be exposed publically
+pub mod score;
 
+use chrono::Utc;
 use parser::Parse;
-use revision_settings::RevisionSettings;
+pub use revision_settings::RevisionSettings;// Shouldn't need to be exposed publically
+pub use score::Score;
 
 #[cfg(test)]
 use mocks::mock_read_to_string as read_file;
@@ -50,11 +52,31 @@ impl Card {
         })
     }
 
+    pub fn is_due(&self) -> bool {
+        Utc::now() >= self.revision_settings.due
+    }
+
+    pub fn in_deck(&self, deck_id: &str) -> bool {
+        self.decks.iter().any(|d| d == deck_id)
+    }
+
     fn move_with_new_revision_settings(self, revision_settings: RevisionSettings) -> Self {
         Card {
             revision_settings,
             ..self
         }
+    }
+}
+
+impl Default for Card {
+    fn default() -> Card {
+        Card::new(
+            String::from(""),
+            Vec::new(),
+            String::from(""),
+            String::from(""),
+            RevisionSettings::default()
+        )
     }
 }
 
@@ -86,7 +108,7 @@ pub mod assertions {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use chrono::Utc;
+    use chrono::Duration;
     use mockall::predicate::eq;
     use parser::MockParser;
     use parser::ParsedCardFields;
@@ -135,6 +157,19 @@ mod unit_tests {
             .with(eq(expected_filepath_arg.clone()))
             .return_const(expected_return_value);
         mock_parser
+    }
+
+    #[test]
+    fn default() {
+        let expected = Card {
+            path: String::from(""),
+            decks: Vec::new(),
+            question: String::from(""),
+            answer: String::from(""),
+            revision_settings: RevisionSettings::default()
+        };
+        let actual = Card::default();
+        assertions::assert_near(&expected, &actual);
     }
 
     #[test]
@@ -193,13 +228,12 @@ mod unit_tests {
     #[test]
     fn move_with_new_revision_settings() {
         fn make_card_with_revision_settings(revision_settings: RevisionSettings) -> Card {
-            Card {
-                path: String::from("some-identifier"),
-                decks: vec![String::from("tag_1"), String::from("tag_2")],
-                question: String::from("What is the meaning of life, the universe, everything?"),
-                answer: String::from("42"),
-                revision_settings,
-            }
+            let fields = make_fake_parsed_fields(
+                vec!["tag_1", "tag_2"],
+                "What is the meaning of life, the universe, everything?",
+                "42"
+            );
+            make_expected_card("some-identifier", &fields, revision_settings)
         }
 
         let old_revision_settings = make_fake_revision_settings(246.8, 135.5);
@@ -208,5 +242,41 @@ mod unit_tests {
         let expected = make_card_with_revision_settings(new_revision_settings.clone());
         let actual = input.move_with_new_revision_settings(new_revision_settings);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn is_due_when_due_date_in_past() {
+        // Note, testing the exact present would be painful so this is the best next thing
+        let mut revision_settings = RevisionSettings::default();
+        revision_settings.due = Utc::now();
+        let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
+        let card = make_expected_card("some-identifier", &fields, revision_settings);
+        assert!(card.is_due());
+    }
+
+    #[test]
+    fn is_due_when_due_date_in_future() {
+        let mut revision_settings = RevisionSettings::default();
+        revision_settings.due = Utc::now() + Duration::days(100);
+        let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
+        let card = make_expected_card("some-identifier", &fields, revision_settings);
+        assert!(!card.is_due());
+    }
+
+    #[test]
+    fn in_deck_when_decks_contains_id() {
+        let revision_settings = RevisionSettings::default();
+        let deck_id = "some_deck";
+        let fields = make_fake_parsed_fields(vec!["deck", deck_id], "q?", "ans");
+        let card = make_expected_card("some-identifier", &fields, RevisionSettings::default());
+        assert!(card.in_deck(deck_id));
+    }
+
+    #[test]
+    fn in_deck_when_decks_do_not_contain_id() {
+        let revision_settings = RevisionSettings::default();
+        let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
+        let card = make_expected_card("some-identifier", &fields, RevisionSettings::default());
+        assert!(!card.in_deck("no"));
     }
 }
