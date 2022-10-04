@@ -4,6 +4,7 @@ pub mod score;
 
 use chrono::Utc;
 use parser::Parse;
+use super::deck::IntervalCoefficients;
 pub use revision_settings::RevisionSettings;// Shouldn't need to be exposed publically
 pub use score::Score;
 
@@ -52,19 +53,19 @@ impl Card {
         })
     }
 
+    pub fn transform(self, score: Score, interval_coefficients: &IntervalCoefficients) -> Self {
+        Self{
+            revision_settings: self.revision_settings.transform(score, interval_coefficients),
+            ..self
+        }
+    }
+
     pub fn is_due(&self) -> bool {
         Utc::now() >= self.revision_settings.due
     }
 
     pub fn in_deck(&self, deck_id: &str) -> bool {
         self.decks.iter().any(|d| d == deck_id)
-    }
-
-    fn move_with_new_revision_settings(self, revision_settings: RevisionSettings) -> Self {
-        Card {
-            revision_settings,
-            ..self
-        }
     }
 }
 
@@ -108,10 +109,24 @@ pub mod assertions {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
-    use chrono::Duration;
+    use chrono::{DateTime, Duration, Utc};
     use mockall::predicate::eq;
     use parser::MockParser;
     use parser::ParsedCardFields;
+
+    // TODO remove duplication
+    fn make_expected_transformed_revision_settings(
+        original_due_date: &DateTime<Utc>,
+        interval: f64,
+        factor: f64,
+    ) -> RevisionSettings {
+        RevisionSettings::new(
+            original_due_date.to_owned() + Duration::seconds((86400.0 * interval) as i64),
+            interval,
+            factor,
+        )
+    }
+
 
     fn make_fake_parsed_fields(
         decks: Vec<&'static str>,
@@ -226,22 +241,24 @@ mod unit_tests {
     }
 
     #[test]
-    fn move_with_new_revision_settings() {
-        fn make_card_with_revision_settings(revision_settings: RevisionSettings) -> Card {
-            let fields = make_fake_parsed_fields(
-                vec!["tag_1", "tag_2"],
-                "What is the meaning of life, the universe, everything?",
-                "42"
-            );
-            make_expected_card("some-identifier", &fields, revision_settings)
-        }
-
-        let old_revision_settings = make_fake_revision_settings(246.8, 135.5);
-        let new_revision_settings = make_fake_revision_settings(135.5, 246.8);
-        let input = make_card_with_revision_settings(old_revision_settings);
-        let expected = make_card_with_revision_settings(new_revision_settings.clone());
-        let actual = input.move_with_new_revision_settings(new_revision_settings);
-        assert_eq!(expected, actual);
+    fn transform() {
+        let score = Score::Easy;
+        let in_due_date = Utc::now() - Duration::days(4);
+        let in_factor = 2000.0;
+        let in_interval = 1.0;
+        let revision_settings = RevisionSettings::new(in_due_date, in_interval, in_factor);
+        let path = String::from("p");
+        let decks = vec![String::from("d")];
+        let question = String::from("q");
+        let answer = String::from("a");
+        let input = Card::new(path, decks, question, answer, revision_settings.clone());
+        let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
+        let out_revision_settings =
+            make_expected_transformed_revision_settings(&in_due_date, 20.0, 2150.0);
+        let mut expected = input.clone();
+        expected.revision_settings = out_revision_settings;
+        let actual = input.transform(score, &coefficients);
+        assert_eq!(expected, actual)
     }
 
     #[test]

@@ -1,15 +1,16 @@
 mod shuffle;
 
 use super::card::{Card, Score};
-use super::deck::Deck;
+use super::deck::{Deck, IntervalCoefficients};
 use std::collections::VecDeque;
 
-pub struct Hand {
+pub struct Hand<'hand> {
     queue: VecDeque<Card>,
+    interval_coefficients: &'hand IntervalCoefficients
 }
 
-impl Hand {
-    pub fn from(deck: &Deck, cards: &Vec<Card>) -> Hand {
+impl<'hand> Hand<'hand> {
+    pub fn from(deck: &'hand Deck, cards: &'hand Vec<Card>) -> Hand<'hand> {
         let is_due_and_in_deck = |c: &Card| c.is_due() && c.in_deck(&deck.id);
         let due_deck_cards = cards
             .to_owned()
@@ -18,44 +19,31 @@ impl Hand {
             .collect();
         Self {
             queue: shuffle::shuffle_cards(due_deck_cards).into_iter().collect(),
+            interval_coefficients: &deck.interval_coefficients
         }
     }
 
-    // TODO test returns empty list of cards for empty queue
-    // TODO test returns cards transformed based on their score
     // TODO test repeats failed cards
-    pub fn revise_until_all_pass<ReadScoreCallback>(
-        self,
-        read_score: ReadScoreCallback,
+    pub fn revise_until_none_fail<ReadScoreCallback>(
+        mut self,
+        mut read_score: ReadScoreCallback,
     ) -> Vec<Card>
     where
-        ReadScoreCallback: FnMut(&Card) -> Score, // maybe doesn't need mut
+        ReadScoreCallback: FnMut(&Card) -> Score
     {
-        let revised = Vec::new();
-        revised
-    }
-
-    /*
-    pub fn cycle_until_revised<Callback>(mut self, mut callback: Callback) -> Vec<Card>
-    where
-        Callback: FnMut(RevisableCard) -> RevisableCard, // maybe doesn't need mut
-    {
-        use RevisableCard::*;
+        use Score::*;
         let mut revised = Vec::new();
         while self.queue.len() > 0 {
-            let revisable_card = self.queue.pop_front().unwrap();
-            match callback(revisable_card) {
-                HasBeenRevised(card) => {
-                    revised.push(card.to_owned());
-                }
-                ToBeRevised(card) => {
-                    self.queue.push_back(ToBeRevised(card));
-                }
+            let card = self.queue.pop_front().unwrap();
+            match read_score(&card) {
+                Easy => revised.push(card.transform(Easy, self.interval_coefficients)),
+                Pass => revised.push(card.transform(Pass, self.interval_coefficients)),
+                Hard => revised.push(card.transform(Hard, self.interval_coefficients)),
+                Fail => self.queue.push_back(card.transform(Fail, self.interval_coefficients)),
             }
         }
         revised
     }
-    */
 }
 
 #[cfg(test)]
@@ -79,7 +67,7 @@ mod unit_tests {
     use crate::application_state::{card::RevisionSettings, deck::IntervalCoefficients};
     use chrono::{DateTime, Duration, Utc};
 
-    fn make_fake_card(path: &str, deck: &str) -> Card {
+    fn make_fake_card_from_path_and_deck(path: &str, deck: &str) -> Card {
         Card::new(
             path.to_string(),
             vec![deck.to_string()],
@@ -89,8 +77,18 @@ mod unit_tests {
         )
     }
 
+    fn make_fake_card_from_path_deck_and_revision_settings(
+        path: &str,
+        deck: &str,
+        revision_settings: &RevisionSettings,
+    ) -> Card {
+        let mut card = make_fake_card_from_path_and_deck(path, deck);
+        card.revision_settings = revision_settings.to_owned();
+        card
+    }
+
     fn make_fake_card_with_due_date(path: &str, deck: &str, due: DateTime<Utc>) -> Card {
-        let mut card = make_fake_card(path, deck);
+        let mut card = make_fake_card_from_path_and_deck(path, deck);
         card.revision_settings.due = due;
         card
     }
@@ -100,11 +98,17 @@ mod unit_tests {
     }
 
     fn make_fake_cards(deck_id: &str, card_paths: &Vec<&str>) -> Vec<Card> {
-        card_paths.iter().map(|p| make_fake_card(p, deck_id)).collect()
+        card_paths
+            .iter()
+            .map(|p| make_fake_card_from_path_and_deck(p, deck_id))
+            .collect()
     }
 
     fn make_fake_deck_and_cards(deck_id: &str, card_paths: Vec<&str>) -> (Deck, Vec<Card>) {
-        (make_fake_deck(deck_id, &card_paths), make_fake_cards(deck_id, &card_paths))
+        (
+            make_fake_deck(deck_id, &card_paths),
+            make_fake_cards(deck_id, &card_paths),
+        )
     }
 
     #[test]
@@ -139,7 +143,7 @@ mod unit_tests {
         let input_card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
         let deck_id = "cephelapoda";
         let (deck, mut cards) = make_fake_deck_and_cards(deck_id, input_card_paths);
-        let clam_card = make_fake_card("clam", "bivalvia");
+        let clam_card = make_fake_card_from_path_and_deck("clam", "bivalvia");
         cards.push(clam_card);
         let hand = Hand::from(&deck, &cards);
         let expected_card_paths = vec!["squid", "cuttlefish", "nautilus", "octopus"];
@@ -148,13 +152,80 @@ mod unit_tests {
         assertions::assert_near(&expected, &actual);
     }
 
+    #[test]
+    fn revise_until_none_fail_with_empty_queue() {
+        let input_card_paths = vec![];
+        let deck_id = "some_deck";
+        let (deck, cards) = make_fake_deck_and_cards(deck_id, input_card_paths);
+        let hand = Hand::from(&deck, &cards);
+        let expected: Vec<Card> = Vec::new();
+        let actual = hand.revise_until_none_fail(|card| Score::Easy);
+        assert_eq!(expected, actual);
+    }
+
+    // TODO remove duplication
+    fn make_expected_transformed_revision_settings(
+        original_due_date: &DateTime<Utc>,
+        interval: f64,
+        factor: f64,
+    ) -> RevisionSettings {
+        RevisionSettings::new(
+            original_due_date.to_owned() + Duration::seconds((86400.0 * interval) as i64),
+            interval,
+            factor,
+        )
+    }
+
+    #[test]
+    fn revise_until_none_fail_transforms_cards_based_on_their_score() {
+        let deck_id = "some_deck";
+        let original_due_date = Utc::now() - Duration::days(4);
+        let input_revision_settings = RevisionSettings::new(original_due_date, 1.0, 2000.0);
+        let input_card_paths = vec!["hard", "pass", "easy"];
+        let cards = input_card_paths
+            .iter()
+            .map(|path| {
+                make_fake_card_from_path_deck_and_revision_settings(
+                    path,
+                    deck_id,
+                    &input_revision_settings,
+                )
+            })
+            .collect();
+        let interval_coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
+        let deck = Deck::new(deck_id, input_card_paths.to_owned(), interval_coefficients);
+        let hand = Hand::from(&deck, &cards);
+        let expected_hard_revision_settings =
+            make_expected_transformed_revision_settings(&original_due_date, 2.4, 1850.0);
+        let expected_pass_revision_settings =
+            make_expected_transformed_revision_settings(&original_due_date, 6.0, 2000.0);
+        let expected_easy_revision_settings =
+            make_expected_transformed_revision_settings(&original_due_date, 20.0, 2150.0);
+        let expected_specs = vec![
+            ("pass", expected_pass_revision_settings),
+            ("easy", expected_easy_revision_settings),
+            ("hard", expected_hard_revision_settings),
+        ];
+        let expected: Vec<Card> = expected_specs
+            .into_iter()
+            .map(|(p, rs)| make_fake_card_from_path_deck_and_revision_settings(p, deck_id, &rs))
+            .collect();
+        let actual = hand.revise_until_none_fail(|card| match &card.path[..] {
+            "hard" => Score::Hard,
+            "pass" => Score::Pass,
+            "easy" => Score::Easy,
+            _ => panic!("IMPOSSIBLE"),
+        });
+        assertions::assert_near(&expected, &actual);
+    }
+
     /*
     #[test]
     fn sandbox() {
-        let octopus_card = make_fake_card("octopus");
-        let squid_card = make_fake_card("squid");
-        let cuttlefish_card = make_fake_card("cuttlefish");
-        let nautilus_card = make_fake_card("nautilus");
+        let octopus_card = make_fake_card_from_path_and_deck("octopus");
+        let squid_card = make_fake_card_from_path_and_deck("squid");
+        let cuttlefish_card = make_fake_card_from_path_and_deck("cuttlefish");
+        let nautilus_card = make_fake_card_from_path_and_deck("nautilus");
         let hand = Hand::new(&vec![
             octopus_card,
             squid_card,
