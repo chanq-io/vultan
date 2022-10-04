@@ -1,11 +1,11 @@
 pub mod parser; // TODO only ParsingConfig & ParsingPattern should be exposed publically
-pub mod revision_settings;// Shouldn't need to be exposed publically
+pub mod revision_settings; // Shouldn't need to be exposed publically
 pub mod score;
 
+use super::deck::IntervalCoefficients;
 use chrono::Utc;
 use parser::Parse;
-use super::deck::IntervalCoefficients;
-pub use revision_settings::RevisionSettings;// Shouldn't need to be exposed publically
+pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed publically
 pub use score::Score;
 
 #[cfg(test)]
@@ -54,8 +54,10 @@ impl Card {
     }
 
     pub fn transform(self, score: Score, interval_coefficients: &IntervalCoefficients) -> Self {
-        Self{
-            revision_settings: self.revision_settings.transform(score, interval_coefficients),
+        Self {
+            revision_settings: self
+                .revision_settings
+                .transform(score, interval_coefficients),
             ..self
         }
     }
@@ -76,7 +78,7 @@ impl Default for Card {
             Vec::new(),
             String::from(""),
             String::from(""),
-            RevisionSettings::default()
+            RevisionSettings::default(),
         )
     }
 }
@@ -108,25 +110,12 @@ pub mod assertions {
 
 #[cfg(test)]
 mod unit_tests {
+    use super::revision_settings::test_tools::make_expected_revision_settings;
     use super::*;
-    use chrono::{DateTime, Duration, Utc};
+    use chrono::{Duration, Utc};
     use mockall::predicate::eq;
     use parser::MockParser;
     use parser::ParsedCardFields;
-
-    // TODO remove duplication
-    fn make_expected_transformed_revision_settings(
-        original_due_date: &DateTime<Utc>,
-        interval: f64,
-        factor: f64,
-    ) -> RevisionSettings {
-        RevisionSettings::new(
-            original_due_date.to_owned() + Duration::seconds((86400.0 * interval) as i64),
-            interval,
-            factor,
-        )
-    }
-
 
     fn make_fake_parsed_fields(
         decks: Vec<&'static str>,
@@ -181,7 +170,7 @@ mod unit_tests {
             decks: Vec::new(),
             question: String::from(""),
             answer: String::from(""),
-            revision_settings: RevisionSettings::default()
+            revision_settings: RevisionSettings::default(),
         };
         let actual = Card::default();
         assertions::assert_near(&expected, &actual);
@@ -253,8 +242,7 @@ mod unit_tests {
         let answer = String::from("a");
         let input = Card::new(path, decks, question, answer, revision_settings.clone());
         let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
-        let out_revision_settings =
-            make_expected_transformed_revision_settings(&in_due_date, 20.0, 2150.0);
+        let out_revision_settings = make_expected_revision_settings(&in_due_date, 20.0, 2150.0);
         let mut expected = input.clone();
         expected.revision_settings = out_revision_settings;
         let actual = input.transform(score, &coefficients);

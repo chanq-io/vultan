@@ -51,7 +51,7 @@ mod unit_tests {
 
         #[test]
         fn new() {
-            let id = "cephelapods";
+            let id = "cephelapoda";
             let card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
             let expected_card_paths = vec![
                 String::from("octopus"),
