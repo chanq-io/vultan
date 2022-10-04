@@ -10,8 +10,8 @@ pub struct RevisionSettings {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct IntervalCalculationSettings<'a> {
-    coefficients: &'a IntervalCoefficients,
+struct IntervalCalculationSettings<'ics> {
+    coefficients: &'ics IntervalCoefficients,
     days_overdue: f64,
 }
 
@@ -152,6 +152,27 @@ pub mod assertions {
     }
 }
 
+pub mod test_tools {
+    use super::*;
+
+    pub fn make_expected_revision_settings(
+        original_due_date: &DateTime<Utc>,
+        interval: f64,
+        factor: f64,
+    ) -> RevisionSettings {
+        RevisionSettings::new(
+            original_due_date.to_owned() + duration_from_interval(interval),
+            interval,
+            factor,
+        )
+    }
+
+    pub fn duration_from_interval(interval: f64) -> Duration {
+        Duration::seconds((86400.0 * interval) as i64)
+    }
+
+}
+
 #[cfg(test)]
 mod unit_tests {
     use super::*;
@@ -165,10 +186,6 @@ mod unit_tests {
             coefficients,
             days_overdue,
         }
-    }
-
-    fn duration_from_interval(interval: f64) -> Duration {
-        Duration::seconds((86400.0 * interval) as i64)
     }
 
     #[test]
@@ -566,7 +583,7 @@ mod unit_tests {
         let new_interval = 15.5;
         let original_due_date = Utc::now();
         let revision_settings = RevisionSettings::new(original_due_date, 0.0, 0.0);
-        let expected = original_due_date + duration_from_interval(new_interval);
+        let expected = original_due_date + test_tools::duration_from_interval(new_interval);
         let actual = revision_settings.calculate_new_due_date(new_interval);
         assert_eq!(expected, actual);
     }
@@ -609,9 +626,8 @@ mod unit_tests {
         let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
         let expected_interval = 2.4;
         let expected_memorisation_factor = 1850.0;
-        let expected_due_date = original_due_date + duration_from_interval(expected_interval);
-        let expected = RevisionSettings::new(
-            expected_due_date,
+        let expected = test_tools::make_expected_revision_settings(
+            &original_due_date,
             expected_interval,
             expected_memorisation_factor,
         );
@@ -633,9 +649,8 @@ mod unit_tests {
         let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
         let expected_interval = 6.0;
         let expected_memorisation_factor = original_memorisation_factor;
-        let expected_due_date = original_due_date + duration_from_interval(expected_interval);
-        let expected = RevisionSettings::new(
-            expected_due_date,
+        let expected = test_tools::make_expected_revision_settings(
+            &original_due_date,
             expected_interval,
             expected_memorisation_factor,
         );
@@ -657,9 +672,8 @@ mod unit_tests {
         let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
         let expected_interval = 20.0;
         let expected_memorisation_factor = 2150.0;
-        let expected_due_date = original_due_date + duration_from_interval(expected_interval);
-        let expected = RevisionSettings::new(
-            expected_due_date,
+        let expected = test_tools::make_expected_revision_settings(
+            &original_due_date,
             expected_interval,
             expected_memorisation_factor,
         );

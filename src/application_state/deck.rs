@@ -2,22 +2,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Deck {
-    id: String,
-    card_paths: Vec<String>,
-    interval_coefficients: IntervalCoefficients,
+    pub id: String,
+    pub card_paths: Vec<String>,
+    pub interval_coefficients: IntervalCoefficients,
 }
 
 impl Deck {
-    fn new (id: &str, card_paths: Vec<&str>, interval_coefficients: IntervalCoefficients) -> Self {
-        Self{
+    pub fn new(id: &str, card_paths: Vec<&str>, interval_coefficients: IntervalCoefficients) -> Self {
+        Self {
             id: id.to_string(),
             card_paths: card_paths.iter().map(|s| s.to_string()).collect(),
-            interval_coefficients
+            interval_coefficients,
         }
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize,)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct IntervalCoefficients {
     pub pass_coef: f64,
     pub easy_coef: f64,
@@ -51,13 +51,13 @@ mod unit_tests {
 
         #[test]
         fn new() {
-            let id = "cephelapods";
+            let id = "cephelapoda";
             let card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
             let expected_card_paths = vec![
                 String::from("octopus"),
                 String::from("squid"),
                 String::from("cuttlefish"),
-                String::from("nautilus")
+                String::from("nautilus"),
             ];
             let interval_coefficients = IntervalCoefficients {
                 pass_coef: 8.0,
@@ -67,7 +67,7 @@ mod unit_tests {
             let expected = Deck {
                 id: id.to_string(),
                 card_paths: expected_card_paths,
-                interval_coefficients: interval_coefficients.clone()
+                interval_coefficients: interval_coefficients.clone(),
             };
             let actual = Deck::new(id, card_paths, interval_coefficients);
             assert_eq!(expected, actual);
@@ -98,7 +98,7 @@ mod unit_tests {
             let expected = IntervalCoefficients {
                 pass_coef,
                 easy_coef,
-                fail_coef
+                fail_coef,
             };
             let actual = IntervalCoefficients::default();
             assert_eq!(expected, actual);
