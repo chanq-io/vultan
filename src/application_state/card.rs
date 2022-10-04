@@ -1,5 +1,5 @@
 pub mod parser; // TODO only ParsingConfig & ParsingPattern should be exposed publically
-mod revision_settings; // Shouldn't need to be exposed publically
+pub mod revision_settings; // Shouldn't need to be exposed publically
 pub mod score;
 
 use super::deck::IntervalCoefficients;
