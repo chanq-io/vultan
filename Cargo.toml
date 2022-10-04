@@ -13,4 +13,3 @@ rand = "0.8.5"
 regex = "1"
 ron = "0.8"
 serde = { version = "1", features = ["derive"] }
-#shuffle = "0.1.7"
