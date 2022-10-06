@@ -5,8 +5,9 @@ mod tools;
 
 use card::{parser::ParsingConfig, Card};
 use deck::Deck;
+use hand::Hand;
 use std::collections::HashMap;
-use tools::{Identifiable, ProtectedField};
+use tools::{UID, Merge};
 
 // TODO (de)serialise
 #[derive(Debug, Default, PartialEq)]
@@ -17,31 +18,67 @@ struct State {
 }
 
 impl State {
-    fn new(card_parsing_config: ParsingConfig, cards: Vec<Card>, decks: Vec<Deck>) -> Self {
+    pub fn new(card_parsing_config: ParsingConfig, cards: Vec<Card>, decks: Vec<Deck>) -> Self {
         Self {
             card_parsing_config,
-            cards: HashMap::from_iter(Self::to_uid_value_pairs(cards).into_iter()),
-            decks: HashMap::from_iter(Self::to_uid_value_pairs(decks).into_iter()),
+            cards: HashMap::from_iter(Self::uid_value_pairs(cards).into_iter()),
+            decks: HashMap::from_iter(Self::uid_value_pairs(decks).into_iter()),
         }
     }
 
-    fn with_overriden_cards(self, cards: Vec<Card>) -> Self {
+    // TODO test
+    // TODO impl
+    pub fn read(notes_directory_path: &str) -> Self {
+        // let state = Self::read_or_default(notes_dir)
+        // let card_parser = Parser::from(&state.card_parsing_config);
+        // let cards = Card::read_all_or_default(&card_parser, &args.notes_dir);
+        // let decks = Deck::many_from_cards(cards);
+        // state.with_merged_cards(cards).with_merged_decks(decks)
+        todo!()
+    }
+
+    // TODO test
+    // TODO impl
+    pub fn write(notes_directory_path: &str) {
+        todo!()
+    }
+
+    pub fn with_overriden_cards(self, cards: Vec<Card>) -> Self {
         Self {
             cards: Self::override_matching_values(self.cards, cards),
             ..self
         }
     }
 
-    fn with_merged_cards(self, cards: Vec<Card>) -> Self {
+    pub fn with_overriden_decks(self, decks: Vec<Deck>) -> Self {
         Self {
-            cards: Self::merge_matching_values(self.cards, cards),
+            decks: Self::override_matching_values(self.decks, decks),
             ..self
         }
     }
 
-    fn with_overriden_decks(self, decks: Vec<Deck>) -> Self {
+    pub fn with_card_parsing_config(self, card_parsing_config: ParsingConfig) -> Self {
         Self {
-            decks: Self::override_matching_values(self.decks, decks),
+            card_parsing_config,
+            ..self
+        }
+    }
+
+    // TODO test
+    // TODO impl
+    pub fn deal(deck_name: &str) -> Hand {
+        todo!()
+    }
+
+    // TODO test
+    // TODO impl
+    fn read_file_or_default(notes_dir_path: &str) {
+        todo!()
+    }
+
+    fn with_merged_cards(self, cards: Vec<Card>) -> Self {
+        Self {
+            cards: Self::merge_matching_values(self.cards, cards),
             ..self
         }
     }
@@ -53,29 +90,7 @@ impl State {
         }
     }
 
-    fn with_card_parsing_config(self, card_parsing_config: ParsingConfig) -> Self {
-        Self {
-            card_parsing_config,
-            ..self
-        }
-    }
-
-    // TODO
-    fn get_all_cards_in_deck(deck_name: &str) -> Vec<&Card> {
-        todo!()
-    }
-
-    // TODO
-    fn get_deck(deck_name: &str) -> &Deck {
-        todo!()
-    }
-
-    // TODO
-    fn deal_hand(deck_name: &str) -> &Deck {
-        todo!()
-    }
-
-    fn override_matching_values<T: Identifiable>(
+    fn override_matching_values<T: UID>(
         map: HashMap<String, T>,
         items: Vec<T>,
     ) -> HashMap<String, T> {
@@ -84,21 +99,21 @@ impl State {
         m
     }
 
-    fn merge_matching_values<T: ProtectedField<T> + Identifiable>(
+    fn merge_matching_values<T: Merge<T> + UID>(
         map: HashMap<String, T>,
         items: Vec<T>,
     ) -> HashMap<String, T> {
         let overriding: Vec<T> = items
             .into_iter()
             .map(|i| match map.get(i.uid()) {
-                Some(item) => i.with_protected_field(&item),
+                Some(item) => i.merge(&item),
                 None => i,
             })
             .collect();
         State::override_matching_values(map, overriding)
     }
 
-    fn to_uid_value_pairs<T: Identifiable>(items: Vec<T>) -> Vec<(String, T)> {
+    fn uid_value_pairs<T: UID>(items: Vec<T>) -> Vec<(String, T)> {
         items
             .into_iter()
             .map(|i| (i.uid().to_string(), i))
@@ -171,7 +186,7 @@ mod unit_tests {
 
     fn state_map_contains<'a, T>(state_map: &HashMap<String, T>, item: &'a T) -> bool
     where
-        T: PartialEq + tools::Identifiable,
+        T: PartialEq + tools::UID,
     {
         state_map.contains_key(item.uid()) && *item == state_map[item.uid()]
     }
@@ -180,11 +195,10 @@ mod unit_tests {
         state_map: &HashMap<String, T>,
         expected: &'a Vec<ExpectContains<T>>,
     ) where
-        T: Default + std::fmt::Debug + PartialEq + tools::Identifiable,
+        T: Default + std::fmt::Debug + PartialEq + tools::UID,
     {
         assert!(state_map_length_matches(&state_map, &expected));
         for comparator in expected.iter() {
-            println!("\n\n{:?}\n{:?}\n\n", state_map, comparator);
             match comparator {
                 ExpectContains::Yes(item) => assert!(state_map_contains(state_map, item)),
                 ExpectContains::No(item) => assert!(!state_map_contains(state_map, item)),

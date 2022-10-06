@@ -11,14 +11,9 @@ pub struct Hand<'h> {
 
 impl<'h> Hand<'h> {
     pub fn from(deck: &'h Deck, cards: &'h Vec<Card>) -> Hand<'h> {
-        let is_due_and_in_deck = |c: &&Card| c.is_due() && c.in_deck(&deck.name);
-        let due_deck_cards = cards
-            .iter()
-            .filter(is_due_and_in_deck)
-            .map(|c| c.to_owned())
-            .collect();
+        let hand_cards = shuffle::shuffle_cards(Hand::filter_due_cards_in_deck(deck, cards));
         Self {
-            queue: shuffle::shuffle_cards(due_deck_cards).into_iter().collect(),
+            queue: hand_cards.into_iter().collect(),
             interval_coefficients: &deck.interval_coefficients,
         }
     }
@@ -41,6 +36,15 @@ impl<'h> Hand<'h> {
             }
         }
         output
+    }
+
+    fn filter_due_cards_in_deck(deck: &'h Deck, cards: &'h Vec<Card>) -> Vec<Card> {
+        let is_due_and_in_deck = |c: &&Card| c.is_due() && c.in_deck(&deck.name);
+        cards
+            .iter()
+            .filter(is_due_and_in_deck)
+            .map(|c| c.to_owned())
+            .collect()
     }
 }
 

@@ -2,7 +2,7 @@ pub mod interval_coefficients;
 
 pub use interval_coefficients::IntervalCoefficients;
 use serde::{Deserialize, Serialize};
-use super::tools::{Identifiable, ProtectedField};
+use super::tools::{UID, Merge};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Deck {
@@ -28,14 +28,14 @@ impl Deck {
     }
 }
 
-impl Identifiable for Deck {
+impl UID for Deck {
     fn uid(&self) -> &str {
         &self.name[..]
     }
 }
 
-impl ProtectedField<Deck> for Deck {
-    fn with_protected_field(self, other: &Deck) -> Self {
+impl Merge<Deck> for Deck {
+    fn merge(self, other: &Deck) -> Self {
         self.with_interval_coefficients(other.interval_coefficients.clone())
     }
 }
@@ -81,9 +81,19 @@ mod unit_tests {
         assert_eq!(expected, actual);
     }
 
+    #[test]
     fn uid() {
         let name = "The Deck";
         let deck = Deck::new(name, vec![], IntervalCoefficients::default());
         assert_eq!(name, deck.uid());
+    }
+
+    #[test]
+    fn merge() {
+        let a = Deck::new("a", vec![], IntervalCoefficients::default());
+        let b = Deck::new("b", vec![], IntervalCoefficients::new(8.0, 9.0, 10.0));
+        let mut expected = a.clone();
+        expected.interval_coefficients = b.interval_coefficients.clone();
+        assert_eq!(expected, a.merge(&b));
     }
 }

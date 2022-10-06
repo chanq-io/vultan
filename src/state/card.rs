@@ -4,7 +4,7 @@ pub mod score;
 
 use chrono::Utc;
 use super::deck::IntervalCoefficients;
-use super::tools::{Identifiable, ProtectedField};
+use super::tools::{UID, Merge};
 use parser::Parse;
 pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed publically
 pub use score::Score;
@@ -77,14 +77,14 @@ impl Card {
     }
 }
 
-impl Identifiable for Card {
+impl UID for Card {
     fn uid(&self) -> &str {
         &self.path[..]
     }
 }
 
-impl ProtectedField<Card> for Card {
-    fn with_protected_field(self, other: &Card) -> Self {
+impl Merge<Card> for Card {
+    fn merge(self, other: &Card) -> Self {
         self.with_revision_settings(other.revision_settings.clone())
     }
 }
@@ -323,5 +323,19 @@ mod unit_tests {
         let a = "".to_string();
         let card = Card::new(path.to_string(), vec![], q, a, RevisionSettings::default());
         assert_eq!(path, card.uid());
+    }
+
+    #[test]
+    fn merge() {
+        let question = "huh?".to_string();
+        let answer = "don't worry".to_string();
+        let revision_settings_a =  RevisionSettings::default();
+        let a = Card::new("a".to_string(), vec![], question, answer, revision_settings_a);
+        let mut b = a.clone();
+        b.path = "b".to_string();
+        b.revision_settings = RevisionSettings::new(Utc::now(), 654.25, 9876.5);
+        let mut expected = a.clone();
+        expected.revision_settings = b.revision_settings.clone();
+        assert_eq!(expected, a.merge(&b));
     }
 }
