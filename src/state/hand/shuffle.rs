@@ -6,7 +6,7 @@ use rand::rngs::mock::StepRng;
 #[cfg(not(test))]
 use rand::thread_rng;
 
-use crate::application_state::card::Card;
+use crate::state::card::Card;
 
 pub fn shuffle_cards(iterable: Vec<Card>) -> Vec<Card>
 {
@@ -23,7 +23,7 @@ pub fn shuffle_cards(iterable: Vec<Card>) -> Vec<Card>
 mod unit_tests {
 
     use super::*;
-    use crate::application_state::card::RevisionSettings;
+    use crate::state::card::RevisionSettings;
 
     fn make_fake_card(path: &str) -> Card {
         Card::new(

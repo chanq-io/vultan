@@ -1,5 +1,5 @@
 use super::score::Score;
-use crate::application_state::deck::IntervalCoefficients;
+use crate::state::deck::IntervalCoefficients;
 use chrono::{DateTime, Duration, Utc};
 
 #[derive(Clone, Debug, PartialEq)]

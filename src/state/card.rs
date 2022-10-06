@@ -2,8 +2,9 @@ pub mod parser; // TODO only ParsingConfig & ParsingPattern should be exposed pu
 pub mod revision_settings; // Shouldn't need to be exposed publically
 pub mod score;
 
-use super::deck::IntervalCoefficients;
 use chrono::Utc;
+use super::deck::IntervalCoefficients;
+use super::tools::Identifiable;
 use parser::Parse;
 pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed publically
 pub use score::Score;
@@ -13,7 +14,7 @@ use mocks::mock_read_to_string as read_file;
 #[cfg(not(test))]
 use std::fs::read_to_string as read_file;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct Card {
     pub path: String,
     pub decks: Vec<String>,
@@ -54,10 +55,15 @@ impl Card {
     }
 
     pub fn transform(self, score: Score, interval_coefficients: &IntervalCoefficients) -> Self {
+        let revision_settings = self.revision_settings
+            .clone()
+            .transform(score, interval_coefficients);
+        self.with_revision_settings(revision_settings)
+    }
+
+    pub fn with_revision_settings(self, revision_settings: RevisionSettings) -> Self {
         Self {
-            revision_settings: self
-                .revision_settings
-                .transform(score, interval_coefficients),
+            revision_settings,
             ..self
         }
     }
@@ -71,15 +77,9 @@ impl Card {
     }
 }
 
-impl Default for Card {
-    fn default() -> Card {
-        Card::new(
-            String::from(""),
-            Vec::new(),
-            String::from(""),
-            String::from(""),
-            RevisionSettings::default(),
-        )
+impl<'a> Identifiable<'a> for Card {
+    fn uid(&'a self) -> &'a str {
+        &self.path[..]
     }
 }
 
@@ -110,13 +110,29 @@ pub mod assertions {
 
 #[cfg(test)]
 mod unit_tests {
-    use super::revision_settings::test_tools::make_expected_revision_settings;
+
     use super::*;
+    use super::revision_settings::test_tools::make_expected_revision_settings;
     use chrono::{Duration, Utc};
     use mockall::predicate::eq;
     use parser::MockParser;
     use parser::ParsedCardFields;
 
+    fn make_fake_card (
+        path: &str,
+        decks: Vec<&str>,
+        question: &str,
+        answer: &str,
+        revision_settings: RevisionSettings
+    ) -> Card {
+        Card::new(
+            path.to_string(),
+            decks.iter().map(|s| s.to_string()).collect(),
+            question.to_string(),
+            answer.to_string(),
+            revision_settings
+        )
+    }
     fn make_fake_parsed_fields(
         decks: Vec<&'static str>,
         question: &'static str,
@@ -142,13 +158,13 @@ mod unit_tests {
         parsed_fields: &ParsedCardFields,
         revision_settings: RevisionSettings,
     ) -> Card {
-        Card {
-            path: path.to_string(),
-            decks: parsed_fields.decks.iter().map(|s| s.to_string()).collect(),
-            question: String::from(parsed_fields.question),
-            answer: String::from(parsed_fields.answer),
-            revision_settings,
-        }
+        make_fake_card(
+            path,
+            parsed_fields.decks.to_owned(),
+            parsed_fields.question,
+            parsed_fields.answer,
+            revision_settings
+        )
     }
 
     fn make_mock_parser(
@@ -230,6 +246,15 @@ mod unit_tests {
     }
 
     #[test]
+    fn with_revision_settings() {
+        let card = Card::default();
+        let revision_settings = RevisionSettings::new(Utc::now(), 9000.0, 10000.0);
+        let mut expected = card.clone();
+        expected.revision_settings = revision_settings.clone();
+        assert_eq!(expected, card.with_revision_settings(revision_settings));
+    }
+
+    #[test]
     fn transform() {
         let score = Score::Easy;
         let in_due_date = Utc::now() - Duration::days(4);
@@ -283,5 +308,14 @@ mod unit_tests {
         let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
         let card = make_expected_card("some-identifier", &fields, RevisionSettings::default());
         assert!(!card.in_deck("no"));
+    }
+
+    #[test]
+    fn uid() {
+        let path = "the/path";
+        let q = "".to_string();
+        let a = "".to_string();
+        let card = Card::new(path.to_string(), vec![], q, a, RevisionSettings::default());
+        assert_eq!(path, card.uid());
     }
 }

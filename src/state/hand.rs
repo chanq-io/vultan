@@ -11,7 +11,7 @@ pub struct Hand<'h> {
 
 impl<'h> Hand<'h> {
     pub fn from(deck: &'h Deck, cards: &'h Vec<Card>) -> Hand<'h> {
-        let is_due_and_in_deck = |c: &&Card| c.is_due() && c.in_deck(&deck.id);
+        let is_due_and_in_deck = |c: &&Card| c.is_due() && c.in_deck(&deck.name);
         let due_deck_cards = cards
             .iter()
             .filter(is_due_and_in_deck)
@@ -48,7 +48,7 @@ impl<'h> Hand<'h> {
 mod assertions {
 
     use super::*;
-    use crate::application_state::card::assertions::assert_near as assert_cards_near;
+    use crate::state::card::assertions::assert_near as assert_cards_near;
 
     pub fn assert_near(a: &Vec<Card>, b: &Vec<Card>) {
         assert!(a.len() == b.len());
@@ -62,8 +62,8 @@ mod assertions {
 mod unit_tests {
 
     use super::*;
-    use crate::application_state::card::revision_settings::test_tools::make_expected_revision_settings;
-    use crate::application_state::{card::RevisionSettings, deck::IntervalCoefficients};
+    use crate::state::card::revision_settings::test_tools::make_expected_revision_settings;
+    use crate::state::{card::RevisionSettings, deck::IntervalCoefficients};
     use chrono::{DateTime, Duration, Utc};
 
     fn make_card(path: &str, deck: &str) -> Card {
@@ -92,8 +92,8 @@ mod unit_tests {
         card
     }
 
-    fn make_deck(id: &str, card_paths: &Vec<&str>) -> Deck {
-        Deck::new(id, card_paths.to_owned(), IntervalCoefficients::default())
+    fn make_deck(name: &str, card_paths: &Vec<&str>) -> Deck {
+        Deck::new(name, card_paths.to_owned(), IntervalCoefficients::default())
     }
 
     fn make_cards(deck_id: &str, card_paths: &Vec<&str>) -> Vec<Card> {

@@ -1,6 +1,6 @@
 use regex::Regex;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ParsingConfig {
     pub decks_pattern: ParsingPattern,
     pub deck_delimiter: String,
@@ -27,7 +27,7 @@ impl Default for ParsingConfig {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ParsingPattern {
     WrappedMultiLine {
         opening_tag: String,
