@@ -4,7 +4,7 @@ pub mod score;
 
 use chrono::Utc;
 use super::deck::IntervalCoefficients;
-use super::tools::Identifiable;
+use super::tools::{Identifiable, ProtectedField};
 use parser::Parse;
 pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed publically
 pub use score::Score;
@@ -77,9 +77,15 @@ impl Card {
     }
 }
 
-impl<'a> Identifiable<'a> for Card {
-    fn uid(&'a self) -> &'a str {
+impl Identifiable for Card {
+    fn uid(&self) -> &str {
         &self.path[..]
+    }
+}
+
+impl ProtectedField<Card> for Card {
+    fn with_protected_field(self, other: &Card) -> Self {
+        self.with_revision_settings(other.revision_settings.clone())
     }
 }
 

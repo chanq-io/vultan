@@ -6,7 +6,7 @@ mod tools;
 use card::{parser::ParsingConfig, Card};
 use deck::Deck;
 use std::collections::HashMap;
-use tools::Identifiable;
+use tools::{Identifiable, ProtectedField};
 
 // TODO (de)serialise
 #[derive(Debug, Default, PartialEq)]
@@ -20,38 +20,37 @@ impl State {
     fn new(card_parsing_config: ParsingConfig, cards: Vec<Card>, decks: Vec<Deck>) -> Self {
         Self {
             card_parsing_config,
-            cards: cards
-                .into_iter()
-                .map(|c| (c.uid().to_string(), c))
-                .collect(),
-            decks: decks
-                .into_iter()
-                .map(|d| (d.uid().to_string(), d))
-                .collect(),
+            cards: HashMap::from_iter(Self::to_uid_value_pairs(cards).into_iter()),
+            decks: HashMap::from_iter(Self::to_uid_value_pairs(decks).into_iter()),
         }
     }
 
-    fn with_overriden_cards(mut self, cards: Vec<Card>) -> Self {
-        self.cards
-            .extend(cards.into_iter().map(|c| (c.path.clone(), c)));
-        self
+    fn with_overriden_cards(self, cards: Vec<Card>) -> Self {
+        Self {
+            cards: Self::override_matching_values(self.cards, cards),
+            ..self
+        }
     }
 
     fn with_merged_cards(self, cards: Vec<Card>) -> Self {
-        let overriding_cards: Vec<Card> = cards
-            .into_iter()
-            .map(|c| match self.cards.get(c.uid()) {
-                Some(card) => c.with_revision_settings(card.revision_settings.clone()),
-                None => c,
-            })
-            .collect();
-        self.with_overriden_cards(overriding_cards)
+        Self {
+            cards: Self::merge_matching_values(self.cards, cards),
+            ..self
+        }
     }
 
-    fn with_decks(mut self, decks: Vec<Deck>) -> Self {
-        self.decks
-            .extend(decks.into_iter().map(|d| (d.name.clone(), d)));
-        self
+    fn with_overriden_decks(self, decks: Vec<Deck>) -> Self {
+        Self {
+            decks: Self::override_matching_values(self.decks, decks),
+            ..self
+        }
+    }
+
+    fn with_merged_decks(self, decks: Vec<Deck>) -> Self {
+        Self {
+            decks: Self::merge_matching_values(self.decks, decks),
+            ..self
+        }
     }
 
     fn with_card_parsing_config(self, card_parsing_config: ParsingConfig) -> Self {
@@ -62,18 +61,48 @@ impl State {
     }
 
     // TODO
-    fn get_all_cards_in_deck(deck_id: &str) -> Vec<&Card> {
+    fn get_all_cards_in_deck(deck_name: &str) -> Vec<&Card> {
         todo!()
     }
 
     // TODO
-    fn get_deck(deck_id: &str) -> &Deck {
+    fn get_deck(deck_name: &str) -> &Deck {
         todo!()
     }
 
     // TODO
-    fn deal_hand(deck_id: &str) -> &Deck {
+    fn deal_hand(deck_name: &str) -> &Deck {
         todo!()
+    }
+
+    fn override_matching_values<T: Identifiable>(
+        map: HashMap<String, T>,
+        items: Vec<T>,
+    ) -> HashMap<String, T> {
+        let mut m = map;
+        m.extend(items.into_iter().map(|i| (i.uid().to_string(), i)));
+        m
+    }
+
+    fn merge_matching_values<T: ProtectedField<T> + Identifiable>(
+        map: HashMap<String, T>,
+        items: Vec<T>,
+    ) -> HashMap<String, T> {
+        let overriding: Vec<T> = items
+            .into_iter()
+            .map(|i| match map.get(i.uid()) {
+                Some(item) => i.with_protected_field(&item),
+                None => i,
+            })
+            .collect();
+        State::override_matching_values(map, overriding)
+    }
+
+    fn to_uid_value_pairs<T: Identifiable>(items: Vec<T>) -> Vec<(String, T)> {
+        items
+            .into_iter()
+            .map(|i| (i.uid().to_string(), i))
+            .collect()
     }
 }
 
@@ -81,6 +110,7 @@ impl State {
 mod unit_tests {
 
     use super::card::revision_settings::RevisionSettings;
+    use super::deck::interval_coefficients::IntervalCoefficients;
     use super::*;
     use chrono::Utc;
 
@@ -103,17 +133,17 @@ mod unit_tests {
         card
     }
 
-    fn fake_deck_with_id(name: &str) -> Deck {
+    fn fake_deck_with_name(name: &str) -> Deck {
         let mut deck = Deck::default();
         deck.name = name.to_string();
         deck
     }
 
     fn fake_parsing_config_card_deck_and_state() -> (ParsingConfig, Card, Deck, State) {
-        let deck_id = "a_deck";
+        let deck_name = "a_deck";
         let card_parsing_config = fake_parsing_config_with_delimiter("///");
-        let card = fake_card_with_path_and_decks("some/path", vec![deck_id]);
-        let deck = fake_deck_with_id(deck_id);
+        let card = fake_card_with_path_and_decks("some/path", vec![deck_name]);
+        let deck = fake_deck_with_name(deck_name);
         let state = State {
             card_parsing_config: card_parsing_config.clone(),
             cards: HashMap::from([(card.path.clone(), card.clone())]),
@@ -141,7 +171,7 @@ mod unit_tests {
 
     fn state_map_contains<'a, T>(state_map: &HashMap<String, T>, item: &'a T) -> bool
     where
-        T: PartialEq + tools::Identifiable<'a>,
+        T: PartialEq + tools::Identifiable,
     {
         state_map.contains_key(item.uid()) && *item == state_map[item.uid()]
     }
@@ -150,7 +180,7 @@ mod unit_tests {
         state_map: &HashMap<String, T>,
         expected: &'a Vec<ExpectContains<T>>,
     ) where
-        T: Default + std::fmt::Debug + PartialEq + tools::Identifiable<'a>,
+        T: Default + std::fmt::Debug + PartialEq + tools::Identifiable,
     {
         assert!(state_map_length_matches(&state_map, &expected));
         for comparator in expected.iter() {
@@ -254,10 +284,10 @@ mod unit_tests {
     }
 
     #[test]
-    fn with_decks_when_new_deck_has_different_id_from_old_deck() {
+    fn with_overriden_decks_when_new_deck_has_different_name_from_old_deck() {
         let (parsing_config, card, old_deck, state) = fake_parsing_config_card_deck_and_state();
-        let new_deck = fake_deck_with_id("a_new_deck_appears");
-        let actual = state.with_decks(vec![new_deck.clone()]);
+        let new_deck = fake_deck_with_name("a_new_deck_appears");
+        let actual = state.with_overriden_decks(vec![new_deck.clone()]);
         assert_state_eq(
             &actual,
             &parsing_config,
@@ -267,16 +297,49 @@ mod unit_tests {
     }
 
     #[test]
-    fn with_decks_when_new_deck_has_same_id_as_old_deck() {
+    fn with_overriden_decks_when_new_deck_has_same_name_as_old_deck() {
         let (parsing_config, card, old_deck, state) = fake_parsing_config_card_deck_and_state();
-        let mut new_deck = fake_deck_with_id(&old_deck.name[..]);
+        let mut new_deck = fake_deck_with_name(&old_deck.name[..]);
         new_deck.interval_coefficients.easy_coef = 9000.0;
-        let actual = state.with_decks(vec![new_deck.clone()]);
+        let actual = state.with_overriden_decks(vec![new_deck.clone()]);
         assert_state_eq(
             &actual,
             &parsing_config,
             vec![ExpectContains::Yes(card)],
             vec![ExpectContains::No(old_deck), ExpectContains::Yes(new_deck)],
+        );
+    }
+
+    #[test]
+    fn with_merged_decks_when_new_deck_has_different_name_from_old_deck() {
+        let (parsing_config, card, old_deck, state) = fake_parsing_config_card_deck_and_state();
+        let new_deck = fake_deck_with_name("a_new_deck_appears");
+        let actual = state.with_merged_decks(vec![new_deck.clone()]);
+        assert_state_eq(
+            &actual,
+            &parsing_config,
+            vec![ExpectContains::Yes(card)],
+            vec![ExpectContains::Yes(old_deck), ExpectContains::Yes(new_deck)],
+        );
+    }
+
+    #[test]
+    fn with_merged_decks_when_new_deck_has_same_name_as_old_deck() {
+        let (parsing_config, card, old_deck, state) = fake_parsing_config_card_deck_and_state();
+        let mut expected_deck = old_deck.clone();
+        expected_deck.card_paths = vec!["a/new/path".to_string(), "another/new/path".to_string()];
+        let mut new_deck = expected_deck.clone();
+        new_deck.interval_coefficients = IntervalCoefficients::new(31.0, 32.0, 33.0);
+        let actual = state.with_merged_decks(vec![new_deck.clone()]);
+        assert_state_eq(
+            &actual,
+            &parsing_config,
+            vec![ExpectContains::Yes(card)],
+            vec![
+                ExpectContains::No(old_deck),
+                ExpectContains::No(new_deck),
+                ExpectContains::Yes(expected_deck),
+            ],
         );
     }
 

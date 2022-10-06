@@ -2,7 +2,7 @@ pub mod interval_coefficients;
 
 pub use interval_coefficients::IntervalCoefficients;
 use serde::{Deserialize, Serialize};
-use super::tools::Identifiable;
+use super::tools::{Identifiable, ProtectedField};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Deck {
@@ -19,11 +19,24 @@ impl Deck {
             interval_coefficients,
         }
     }
+
+    pub fn with_interval_coefficients(self, interval_coefficients: IntervalCoefficients) -> Self {
+        Self {
+            interval_coefficients,
+            ..self
+        }
+    }
 }
 
-impl<'a> Identifiable<'a> for Deck {
-    fn uid(&'a self) -> &'a str {
+impl Identifiable for Deck {
+    fn uid(&self) -> &str {
         &self.name[..]
+    }
+}
+
+impl ProtectedField<Deck> for Deck {
+    fn with_protected_field(self, other: &Deck) -> Self {
+        self.with_interval_coefficients(other.interval_coefficients.clone())
     }
 }
 
@@ -53,6 +66,18 @@ mod unit_tests {
             interval_coefficients: interval_coefficients.clone(),
         };
         let actual = Deck::new(name, card_paths, interval_coefficients);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn with_interval_coefficients() {
+        let name = "deck";
+        let old_interval_coefficients = IntervalCoefficients::default();
+        let new_interval_coefficients = IntervalCoefficients::new(8.0, 9.0, 10.0);
+        let deck = Deck::new(name, vec!["a"], old_interval_coefficients);
+        let mut expected = deck.clone();
+        expected.interval_coefficients = new_interval_coefficients.clone();
+        let actual = deck.with_interval_coefficients(new_interval_coefficients);
         assert_eq!(expected, actual);
     }
 
