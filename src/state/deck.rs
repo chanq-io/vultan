@@ -1,10 +1,10 @@
 pub mod interval_coefficients;
 
+use super::tools::{Merge, UID};
 pub use interval_coefficients::IntervalCoefficients;
 use serde::{Deserialize, Serialize};
-use super::tools::{UID, Merge};
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, PartialOrd, Serialize)]
 pub struct Deck {
     pub name: String,
     pub card_paths: Vec<String>,
@@ -12,7 +12,11 @@ pub struct Deck {
 }
 
 impl Deck {
-    pub fn new(name: &str, card_paths: Vec<&str>, interval_coefficients: IntervalCoefficients) -> Self {
+    pub fn new(
+        name: &str,
+        card_paths: Vec<&str>,
+        interval_coefficients: IntervalCoefficients,
+    ) -> Self {
         Self {
             name: name.to_string(),
             card_paths: card_paths.iter().map(|s| s.to_string()).collect(),

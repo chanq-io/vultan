@@ -1,6 +1,7 @@
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ParsingConfig {
     pub decks_pattern: ParsingPattern,
     pub deck_delimiter: String,
@@ -12,22 +13,22 @@ impl Default for ParsingConfig {
     fn default() -> Self {
         Self {
             decks_pattern: ParsingPattern::TaggedLine {
-                tag: String::from(r"tags:"),
+                tag: "tags:".to_string(),
             },
-            deck_delimiter: String::from(":"),
+            deck_delimiter: ":".to_string(),
             question_pattern: ParsingPattern::WrappedMultiLine {
-                opening_tag: String::from(r"# Question"),
-                closing_tag: String::from(r"# Answer"),
+                opening_tag: "# Question".to_string(),
+                closing_tag: "# Answer".to_string(),
             },
             answer_pattern: ParsingPattern::WrappedMultiLine {
-                opening_tag: String::from(r"# Answer"),
-                closing_tag: String::from(r"----\n"),
+                opening_tag: "# Answer".to_string(),
+                closing_tag: "----\n".to_string(),
             },
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum ParsingPattern {
     WrappedMultiLine {
         opening_tag: String,
@@ -156,7 +157,7 @@ mod unit_tests {
             };
             let expected_answer_pattern = ParsingPattern::WrappedMultiLine {
                 opening_tag: String::from(r"# Answer"),
-                closing_tag: String::from(r"----\n"),
+                closing_tag: String::from("----\n"),
             };
             let actual = ParsingConfig::default();
             assert_eq!(expected_decks_pattern, actual.decks_pattern);
@@ -181,7 +182,7 @@ mod unit_tests {
                 r"# Question((?s).*)# Answer",
                 parser.question_expression.as_str()
             );
-            assert_eq!(r"# Answer((?s).*)----\n", parser.answer_expression.as_str());
+            assert_eq!("# Answer((?s).*)----\n", parser.answer_expression.as_str());
         }
 
         #[test]

@@ -1,4 +1,5 @@
 use vultan::state::card::parser::{Parser, ParsingConfig};
+use vultan::state::file::FileHandle;
 use vultan::state::card::Card;
 use std::error::Error;
 /*
@@ -16,6 +17,7 @@ use std::error::Error;
 fn main() -> Result<(), Box<dyn Error>> {
     let config = ParsingConfig::default();
     let parser = Parser::from(config)?;
-    println!("{:?}", Card::from("./test_card.md", &parser));
+    let file_handle = FileHandle::from("./test_card.md".to_string());
+    println!("{:?}", Card::from(file_handle, &parser));
     Ok(())
 }
