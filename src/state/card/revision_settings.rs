@@ -1,8 +1,9 @@
 use super::score::Score;
-use crate::application_state::deck::IntervalCoefficients;
+use crate::state::deck::IntervalCoefficients;
 use chrono::{DateTime, Duration, Utc};
+use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
 pub struct RevisionSettings {
     pub due: DateTime<Utc>,
     pub interval: f64,
@@ -132,13 +133,12 @@ impl Default for RevisionSettings {
     fn default() -> Self {
         Self::new(Utc::now(), 0.0, 1300.0)
     }
-
 }
 
 #[cfg(test)]
 pub mod assertions {
     use super::*;
-    pub fn assert_near(
+    pub fn assert_revision_settings_near(
         a: &RevisionSettings,
         b: &RevisionSettings,
         due_difference_tolerance_in_seconds: i64,
@@ -170,7 +170,6 @@ pub mod test_tools {
     pub fn duration_from_interval(interval: f64) -> Duration {
         Duration::seconds((86400.0 * interval) as i64)
     }
-
 }
 
 #[cfg(test)]
@@ -210,7 +209,7 @@ mod unit_tests {
             memorisation_factor: 1300.0,
         };
         let actual = RevisionSettings::default();
-        assertions::assert_near(&expected, &actual, 2);
+        assertions::assert_revision_settings_near(&expected, &actual, 2);
     }
 
     #[test]
