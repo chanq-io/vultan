@@ -1,7 +1,7 @@
 use super::score::Score;
 use crate::state::deck::IntervalCoefficients;
 use chrono::{DateTime, Duration, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
 pub struct RevisionSettings {
@@ -176,6 +176,7 @@ pub mod test_tools {
 mod unit_tests {
     use super::*;
     use chrono::Duration;
+    use rstest::*;
 
     fn make_interval_calculation_settings<'a>(
         coefficients: &'a IntervalCoefficients,
@@ -212,202 +213,92 @@ mod unit_tests {
         assertions::assert_revision_settings_near(&expected, &actual, 2);
     }
 
-    #[test]
-    fn create_interval_calculation_settings() {
-        let n_days_overdue = 123;
-        let due = Utc::now() - Duration::days(n_days_overdue);
-        let coefficients = IntervalCoefficients::new(1.0, 2.0, 6.0);
-        let expected = make_interval_calculation_settings(&coefficients, n_days_overdue as f64);
-        let revision_settings = RevisionSettings::new(due, 1.0, 1.0);
-        let actual = revision_settings.create_interval_calculation_settings(&coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn create_interval_calculation_settings_when_days_overdue_is_fractional() {
-        let n_days_overdue = 0.5;
-        let due = Utc::now() - Duration::hours(12);
-        let coefficients = IntervalCoefficients::new(8.0, 5.0, 3.0);
+    #[rstest]
+    #[case::default(123.0, Utc::now() - Duration::days(123), 1.0, 2.0, 6.0, 1.0, 1.0)]
+    #[case::when_days_overdue_is_fractional(0.5, Utc::now() - Duration::hours(12), 8.0, 5.0, 3.0, 1.0, 1.0)]
+    #[case::when_fail_coef_is_0(0.0, Utc::now(), 1e10, 1e10, 0.0, 24.0, 1.0)]
+    fn create_interval_calculation_settings(
+        #[case] n_days_overdue: f64,
+        #[case] due: DateTime<Utc>,
+        #[case] pass_coef: f64,
+        #[case] easy_coef: f64,
+        #[case] fail_coef: f64,
+        #[case] interval: f64,
+        #[case] memorisation_factor: f64,
+    ) {
+        let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
         let expected = make_interval_calculation_settings(&coefficients, n_days_overdue);
-        let revision_settings = RevisionSettings::new(due, 1.0, 1.0);
+        let revision_settings = RevisionSettings::new(due, interval, memorisation_factor);
         let actual = revision_settings.create_interval_calculation_settings(&coefficients);
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn calculate_fail_interval_where_fail_coef_is_0() {
-        let fail_coef = 0.0;
+    #[rstest]
+    #[case::when_non_0(10.0, 240.0)]
+    #[case::when_0(0.0, 0.0)]
+    fn calculate_fail_interval(#[case] fail_coef: f64, #[case] expected: f64) {
         let revision_settings = RevisionSettings::new(Utc::now(), 24.0, 1.0);
         let coefficients = IntervalCoefficients::new(1e10, 1e10, fail_coef);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let expected = 0.0;
         let actual = revision_settings.calculate_fail_interval(&calculation_settings);
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn calculate_fail_interval_where_fail_coef_is_non_0() {
-        let fail_coef = 10.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 24.0, 1.0);
-        let coefficients = IntervalCoefficients::new(1e10, 1e10, fail_coef);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let expected = 240.0;
-        let actual = revision_settings.calculate_fail_interval(&calculation_settings);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_hard_interval_where_interval_is_already_high() {
-        let interval = 100.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), interval, 1.0);
-        let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let expected = interval + 1.0;
-        let actual = revision_settings.calculate_hard_interval(&calculation_settings);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_hard_interval_where_pass_coef_is_0() {
-        let interval = 1.0;
-        let pass_coef = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), interval, 1.0);
-        let coefficients = IntervalCoefficients::new(pass_coef, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let expected = interval + 1.0;
-        let actual = revision_settings.calculate_hard_interval(&calculation_settings);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_hard_interval() {
-        let interval = 1.0;
-        let pass_coef = 1.0;
+    #[rstest]
+    #[case::default(1.0, 1.0, 2.4)]
+    #[case::when_interval_is_high(100.0, 0.1, 101.0)]
+    #[case::when_pass_coef_is_0(1.0, 0.0, 2.0)]
+    fn calculate_hard_interval(
+        #[case] interval: f64,
+        #[case] pass_coef: f64,
+        #[case] expected: f64,
+    ) {
         let revision_settings = RevisionSettings::new(Utc::now(), interval, 1.0);
         let coefficients = IntervalCoefficients::new(pass_coef, 0.1, 0.1);
         let calculation_settings = make_interval_calculation_settings(&coefficients, 4.0);
-        let expected = 2.4;
         let actual = revision_settings.calculate_hard_interval(&calculation_settings);
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn calculate_pass_interval_where_pass_coef_is_0() {
-        let pass_coef = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
-        let coefficients = IntervalCoefficients::new(pass_coef, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let hard_interval = 1.0;
-        let expected = hard_interval + 1.0;
-        let actual =
-            revision_settings.calculate_pass_interval(&calculation_settings, hard_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_pass_interval_where_factor_is_0() {
-        let memorisation_factor = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, memorisation_factor);
-        let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let hard_interval = 1.0;
-        let expected = hard_interval + 1.0;
-        let actual =
-            revision_settings.calculate_pass_interval(&calculation_settings, hard_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_pass_interval_where_hard_interval_is_already_high() {
-        let hard_interval = 100.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
-        let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let expected = hard_interval + 1.0;
-        let actual =
-            revision_settings.calculate_pass_interval(&calculation_settings, hard_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_pass_interval() {
-        let interval = 10.0;
-        let memorisation_factor = 1000.0;
-        let pass_coef = 5.0;
+    #[rstest]
+    #[case::default(10.0, 1000.0, 5.0, 5.0, 20.0, 100.0)]
+    #[case::when_pass_coef_is_0(1.0, 1.0, 0.0, 1.0, 1.0, 2.0)]
+    #[case::when_memorisation_factor_is_0(1.0, 0.0, 0.1, 1.0, 1.0, 2.0)]
+    #[case::when_hard_interval_is_high(1.0, 1.0, 0.1, 1000.0, 1.0, 1001.0)]
+    fn calculate_pass_interval(
+        #[case] interval: f64,
+        #[case] memorisation_factor: f64,
+        #[case] pass_coef: f64,
+        #[case] hard_interval: f64,
+        #[case] days_overdue: f64,
+        #[case] expected: f64,
+    ) {
         let revision_settings = RevisionSettings::new(Utc::now(), interval, memorisation_factor);
-        let days_overdue = 20.0;
-        let hard_interval = 5.0;
         let coefficients = IntervalCoefficients::new(pass_coef, 1.3, 0.0);
         let calculation_settings = make_interval_calculation_settings(&coefficients, days_overdue);
-        let expected = 100.0;
         let actual =
             revision_settings.calculate_pass_interval(&calculation_settings, hard_interval);
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn calculate_easy_interval_when_pass_interval_is_already_high() {
-        let pass_interval = 100.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
-        let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let expected = pass_interval + 1.0;
-        let actual =
-            revision_settings.calculate_easy_interval(&calculation_settings, pass_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_easy_interval_when_factor_is_0() {
-        let memorisation_factor = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, memorisation_factor);
-        let coefficients = IntervalCoefficients::new(0.1, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let pass_interval = 1.0;
-        let expected = pass_interval + 1.0;
-        let actual =
-            revision_settings.calculate_easy_interval(&calculation_settings, pass_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_easy_interval_when_pass_coef_is_0() {
-        let pass_coef = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
-        let coefficients = IntervalCoefficients::new(pass_coef, 0.1, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let pass_interval = 1.0;
-        let expected = pass_interval + 1.0;
-        let actual =
-            revision_settings.calculate_easy_interval(&calculation_settings, pass_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_easy_interval_when_easy_coef_is_0() {
-        let easy_coef = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, 1.0);
-        let coefficients = IntervalCoefficients::new(0.1, easy_coef, 0.1);
-        let calculation_settings = make_interval_calculation_settings(&coefficients, 1.0);
-        let pass_interval = 1.0;
-        let expected = pass_interval + 1.0;
-        let actual =
-            revision_settings.calculate_easy_interval(&calculation_settings, pass_interval);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_easy_interval() {
-        let interval = 10.0;
-        let memorisation_factor = 2000.0;
+    #[rstest]
+    #[case::default(10.0, 2000.0, 5.0, 100.0, 4.0, 20.0, 30000.0)]
+    #[case::when_pass_interval_is_high(1.0, 1.0, 0.1, 0.1, 100.0, 1.0, 101.0)]
+    #[case::when_memorisation_factor_is_0(1.0, 0.0, 0.1, 0.1, 1.0, 1.0, 2.0)]
+    #[case::when_pass_coef_is_0(1.0, 1.0, 0.0, 0.1, 1.0, 1.0, 2.0)]
+    #[case::when_easy_coef_is_0(1.0, 1.0, 0.1, 0.0, 1.0, 1.0, 2.0)]
+    fn calculate_easy_interval(
+        #[case] interval: f64,
+        #[case] memorisation_factor: f64,
+        #[case] pass_coef: f64,
+        #[case] easy_coef: f64,
+        #[case] pass_interval: f64,
+        #[case] days_overdue: f64,
+        #[case] expected: f64,
+    ) {
         let revision_settings = RevisionSettings::new(Utc::now(), interval, memorisation_factor);
-        let days_overdue = 20.0;
-        let pass_coef = 5.0;
-        let easy_coef = 100.0;
-        let pass_interval = 4.0;
         let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, 0.0);
         let calculation_settings = make_interval_calculation_settings(&coefficients, days_overdue);
-        let expected = 30000.0;
         let actual =
             revision_settings.calculate_easy_interval(&calculation_settings, pass_interval);
         assert_eq!(expected, actual);
@@ -429,150 +320,34 @@ mod unit_tests {
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn calculate_interval_with_fail_score() {
-        let interval = 1.0;
-        let factor = 2000.0;
-        let days_overdue = 4.0;
-        let pass_coef = 1.0;
-        let easy_coef = 2.0;
-        let fail_coef = 0.0;
-        let score = Score::Fail;
-        let due = Utc::now() - Duration::days(days_overdue as i64);
-        let revision_settings = RevisionSettings::new(due, interval, factor);
-        let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
-        let expected = 0.0;
+    #[rstest]
+    #[case::fail_score(Score::Fail, 0.0)]
+    #[case::hard_score(Score::Hard, 2.4)]
+    #[case::pass_score(Score::Pass, 6.0)]
+    #[case::easy_score(Score::Easy, 20.0)]
+    fn calculate_interval_with_fail_score(#[case] score: Score, #[case] expected: f64) {
+        let due = Utc::now() - Duration::days(4);
+        let revision_settings = RevisionSettings::new(due, 1.0, 2000.0);
+        let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
         let actual = revision_settings.calculate_new_interval(&score, &coefficients);
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn calculate_interval_with_hard_score() {
-        let interval = 1.0;
-        let factor = 2000.0;
-        let days_overdue = 4.0;
-        let pass_coef = 1.0;
-        let easy_coef = 2.0;
-        let fail_coef = 0.0;
-        let score = Score::Hard;
-        let due = Utc::now() - Duration::days(days_overdue as i64);
-        let revision_settings = RevisionSettings::new(due, interval, factor);
-        let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
-        let expected = 2.4;
-        let actual = revision_settings.calculate_new_interval(&score, &coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_interval_with_pass_score() {
-        let interval = 1.0;
-        let factor = 2000.0;
-        let days_overdue = 4.0;
-        let pass_coef = 1.0;
-        let easy_coef = 2.0;
-        let fail_coef = 0.0;
-        let score = Score::Pass;
-        let due = Utc::now() - Duration::days(days_overdue as i64);
-        let revision_settings = RevisionSettings::new(due, interval, factor);
-        let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
-        let expected = 6.0;
-        let actual = revision_settings.calculate_new_interval(&score, &coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_interval_with_easy_score() {
-        let interval = 1.0;
-        let factor = 2000.0;
-        let days_overdue = 4.0;
-        let pass_coef = 1.0;
-        let easy_coef = 2.0;
-        let fail_coef = 0.0;
-        let score = Score::Easy;
-        let due = Utc::now() - Duration::days(days_overdue as i64);
-        let revision_settings = RevisionSettings::new(due, interval, factor);
-        let coefficients = IntervalCoefficients::new(pass_coef, easy_coef, fail_coef);
-        let expected = 20.0;
-        let actual = revision_settings.calculate_new_interval(&score, &coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_fail_and_factor_gt_1300() {
-        let score = Score::Fail;
-        let factor = 2000.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 1800.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_fail_and_factor_lt_1300() {
-        let score = Score::Fail;
-        let factor = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 1300.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_hard_and_factor_gt_1300() {
-        let score = Score::Hard;
-        let factor = 2000.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 1850.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_hard_and_factor_lt_1300() {
-        let score = Score::Hard;
-        let factor = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 1300.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_pass_and_factor_gt_1300() {
-        let score = Score::Pass;
-        let factor = 2000.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 2000.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_pass_and_factor_lt_1300() {
-        let score = Score::Pass;
-        let factor = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 1300.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_easy_and_factor_gt_1300() {
-        let score = Score::Easy;
-        let factor = 2000.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 2150.0;
-        let actual = revision_settings.calculate_new_memorisation_factor(&score);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn calculate_new_memorisation_factor_when_easy_and_factor_lt_1300() {
-        let score = Score::Easy;
-        let factor = 0.0;
-        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, factor);
-        let expected = 1300.0;
+    #[rstest]
+    #[case::when_fail_and_factor_gt_1300(Score::Fail, 2000.0, 1800.0)]
+    #[case::when_fail_and_factor_lt_1300(Score::Fail, 0.0, 1300.0)]
+    #[case::when_hard_and_factor_gt_1300(Score::Hard, 2000.0, 1850.0)]
+    #[case::when_hard_and_factor_lt_1300(Score::Hard, 0.0, 1300.0)]
+    #[case::when_pass_and_factor_gt_1300(Score::Pass, 2000.0, 2000.0)]
+    #[case::when_pass_and_factor_lt_1300(Score::Pass, 0.0, 1300.0)]
+    #[case::when_easy_and_factor_gt_1300(Score::Easy, 2000.0, 2150.0)]
+    #[case::when_easy_and_factor_lt_1300(Score::Easy, 0.0, 1300.0)]
+    fn calculate_new_memorisation_factor(
+        #[case] score: Score,
+        #[case] memorisation_factor: f64,
+        #[case] expected: f64,
+    ) {
+        let revision_settings = RevisionSettings::new(Utc::now(), 1.0, memorisation_factor);
         let actual = revision_settings.calculate_new_memorisation_factor(&score);
         assert_eq!(expected, actual);
     }
@@ -587,90 +362,21 @@ mod unit_tests {
         assert_eq!(expected, actual);
     }
 
-    #[test]
-    fn transform_when_fail() {
-        let score = Score::Fail;
+    #[rstest]
+    #[case::when_fail(Score::Fail, 0.0, 1800.0)]
+    #[case::when_hard(Score::Hard, 2.4, 1850.0)]
+    #[case::when_pass(Score::Pass, 6.0, 2000.0)]
+    #[case::when_easy(Score::Easy, 20.0, 2150.0)]
+    fn transform(
+        #[case] score: Score,
+        #[case] expected_interval: f64,
+        #[case] expected_memorisation_factor: f64,
+    ) {
         let original_due_date = Utc::now() - Duration::days(4);
         let original_memorisation_factor = 2000.0;
         let original_interval = 1.0;
-        let revision_settings = RevisionSettings::new(
-            original_due_date,
-            original_interval,
-            original_memorisation_factor,
-        );
+        let revision_settings = RevisionSettings::new(original_due_date, 1.0, 2000.0);
         let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
-        let expected_memorisation_factor = 1800.0;
-        let expected_interval = 0.0;
-        let expected_due_date = original_due_date.clone();
-        let expected = RevisionSettings::new(
-            expected_due_date,
-            expected_interval,
-            expected_memorisation_factor,
-        );
-        let actual = revision_settings.transform(score, &coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn transform_when_hard() {
-        let score = Score::Hard;
-        let original_due_date = Utc::now() - Duration::days(4);
-        let original_memorisation_factor = 2000.0;
-        let original_interval = 1.0;
-        let revision_settings = RevisionSettings::new(
-            original_due_date,
-            original_interval,
-            original_memorisation_factor,
-        );
-        let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
-        let expected_interval = 2.4;
-        let expected_memorisation_factor = 1850.0;
-        let expected = test_tools::make_expected_revision_settings(
-            &original_due_date,
-            expected_interval,
-            expected_memorisation_factor,
-        );
-        let actual = revision_settings.transform(score, &coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn transform_when_pass() {
-        let score = Score::Pass;
-        let original_due_date = Utc::now() - Duration::days(4);
-        let original_memorisation_factor = 2000.0;
-        let original_interval = 1.0;
-        let revision_settings = RevisionSettings::new(
-            original_due_date,
-            original_interval,
-            original_memorisation_factor,
-        );
-        let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
-        let expected_interval = 6.0;
-        let expected_memorisation_factor = original_memorisation_factor;
-        let expected = test_tools::make_expected_revision_settings(
-            &original_due_date,
-            expected_interval,
-            expected_memorisation_factor,
-        );
-        let actual = revision_settings.transform(score, &coefficients);
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn transform_when_easy() {
-        let score = Score::Easy;
-        let original_due_date = Utc::now() - Duration::days(4);
-        let original_memorisation_factor = 2000.0;
-        let original_interval = 1.0;
-        let revision_settings = RevisionSettings::new(
-            original_due_date,
-            original_interval,
-            original_memorisation_factor,
-        );
-        let coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
-        let expected_interval = 20.0;
-        let expected_memorisation_factor = 2150.0;
         let expected = test_tools::make_expected_revision_settings(
             &original_due_date,
             expected_interval,
