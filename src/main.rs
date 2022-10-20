@@ -1,7 +1,7 @@
-use vultan::state::card::parser::{Parser, ParsingConfig};
-use vultan::state::file::FileHandle;
-use vultan::state::card::Card;
 use std::error::Error;
+use vultan::state::card::parser::{Parser, ParsingConfig};
+use vultan::state::card::Card;
+use vultan::state::file::FileHandle;
 /*
  * let state = State::read(&args.notes_dir);
  *    -> let state = Self::read_or_default(notes_dir)

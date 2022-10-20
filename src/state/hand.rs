@@ -18,7 +18,7 @@ impl<'h> Hand<'h> {
             _ => Ok(Self {
                 queue: hand_cards.into_iter().collect(),
                 interval_coefficients: &deck.interval_coefficients,
-            })
+            }),
         }
     }
 
@@ -55,11 +55,8 @@ impl<'h> Hand<'h> {
 pub mod assertions {
 
     use super::*;
-    use crate::state::tools::test_tools::{
-        ExpectContains,
-        assertions::assert_length_matches
-    };
     use crate::state::card::assertions::assert_cards_near;
+    use crate::state::tools::test_tools::{assertions::assert_length_matches, ExpectContains};
 
     pub fn assert_hands_near(a: &Vec<Card>, b: &Vec<Card>) {
         assert!(a.len() == b.len());
@@ -71,7 +68,7 @@ pub mod assertions {
     pub fn assert_hand_contains(
         hand: &Hand,
         expected_coefficients: &IntervalCoefficients,
-        expected_queued_items: &Vec<ExpectContains<Card>>
+        expected_queued_items: &Vec<ExpectContains<Card>>,
     ) {
         assert_eq!(hand.interval_coefficients, expected_coefficients);
         assert_length_matches(&hand.queue, &expected_queued_items);
@@ -187,7 +184,10 @@ mod unit_tests {
     #[test]
     fn revise_until_none_fail_with_empty_queue() {
         let interval_coefficients = IntervalCoefficients::default();
-        let hand = Hand{ queue: VecDeque::new(), interval_coefficients: &&interval_coefficients};
+        let hand = Hand {
+            queue: VecDeque::new(),
+            interval_coefficients: &&interval_coefficients,
+        };
         let expected: Vec<Card> = Vec::new();
         let actual = hand.revise_until_none_fail(|card| Score::Easy);
         assert_eq!(expected, actual);

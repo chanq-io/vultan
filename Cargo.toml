@@ -18,3 +18,4 @@ snafu = "0.7.2"
 
 [dev-dependencies]
 len-trait = "0.6"
+rstest = "0.15"

@@ -90,7 +90,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn write_should_call_write_file(){
+    fn write_should_call_write_file() {
         let (path, content) = ("hello", "world");
         let handle = FileHandle::from(path.to_string());
         let actual = handle.write(content.to_string()).unwrap();
@@ -98,7 +98,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn write_should_propagate_error(){
+    fn write_should_propagate_error() {
         let (path, content) = (mocks::ERRONEOUS_PATH, "");
         let handle = FileHandle::from(path.to_string());
         let actual = handle.write(content.to_string());

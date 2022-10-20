@@ -10,10 +10,10 @@ pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed pub
 pub use score::Score;
 use snafu::{prelude::*, Whatever};
 
-#[cfg(test)]
-use mockall_double::double;
 #[cfg_attr(test, double)]
 use super::file::FileHandle;
+#[cfg(test)]
+use mockall_double::double;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
@@ -44,9 +44,11 @@ impl Card {
 
     pub fn from(file_handle: FileHandle, parser: &impl Parse) -> Result<Self, Whatever> {
         let file_path = file_handle.path();
-        let file_content = file_handle.read()
+        let file_content = file_handle
+            .read()
             .with_whatever_context(|_| format!("Unable to read Card from {}", file_path))?;
-        let parsed_fields = parser.parse(&file_content)
+        let parsed_fields = parser
+            .parse(&file_content)
             .with_whatever_context(|_| format!("Unable to parse Card from {}", file_path))?;
         Ok(Self {
             path: file_path.to_string(),
@@ -252,12 +254,8 @@ mod unit_tests {
         let actual = Card::from(file_handle, &mock_parser);
         assert!(actual.is_err());
         let actual_err = actual.unwrap_err();
-        assert!(actual_err
-            .to_string()
-            .contains(&expected_message));
-        assert!(!actual_err
-            .to_string()
-            .contains(&unexpected_message));
+        assert!(actual_err.to_string().contains(&expected_message));
+        assert!(!actual_err.to_string().contains(&unexpected_message));
     }
 
     #[test]

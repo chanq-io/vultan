@@ -8,14 +8,19 @@ use card::{parser::ParsingConfig, Card};
 use deck::Deck;
 use hand::Hand;
 use serde::{Deserialize, Serialize};
+use snafu::{prelude::*, Whatever};
 use std::collections::HashMap;
 use tools::{Merge, UID};
-use snafu::{prelude::*, Whatever};
 
 #[cfg_attr(test, double)]
 use file::FileHandle;
 #[cfg(test)]
 use mockall_double::double;
+
+#[cfg(test)]
+use mocks::to_string_pretty as serialise;
+#[cfg(not(test))]
+use ron::ser::to_string_pretty as serialise;
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct State {
@@ -35,17 +40,19 @@ impl State {
 
     pub fn read(file_handle: FileHandle) -> Result<Self, Whatever> {
         let file_path = file_handle.path();
-        let content = file_handle.read()
+        let content = file_handle
+            .read()
             .with_whatever_context(|_| format!("Unable to read State from {}", file_path))?;
         ron::from_str(&content)
             .with_whatever_context(|_| format!("Unable to parse State from {}", file_path))
     }
 
-    pub fn write(&self, file_handle: FileHandle) -> Result<(), Whatever>{
+    pub fn write(&self, file_handle: FileHandle) -> Result<(), Whatever> {
         let file_path = file_handle.path();
-        let content = ron::ser::to_string_pretty(&self, ron::ser::PrettyConfig::default())
+        let content = serialise(&self, ron::ser::PrettyConfig::default())
             .with_whatever_context(|_| format!("Unable to serialise State to {}", file_path))?;
-        file_handle.write(content)
+        file_handle
+            .write(content)
             .with_whatever_context(|_| format!("Unable to write State to {}", file_path))
     }
 
@@ -120,6 +127,26 @@ impl State {
             .into_iter()
             .map(|i| (i.uid().to_string(), i))
             .collect()
+    }
+}
+
+#[cfg(test)]
+pub mod mocks {
+
+    use super::*;
+
+    pub const ERROR_ID: &'static str = "ERROR";
+
+    pub fn to_string_pretty(
+        state: &State,
+        config: ron::ser::PrettyConfig,
+    ) -> Result<String, String> {
+        if state.card_parsing_config.deck_delimiter == ERROR_ID {
+            Err(ERROR_ID.to_string())
+        } else {
+            ron::ser::to_string_pretty(state, ron::ser::PrettyConfig::default())
+                .map_err(|e| e.to_string())
+        }
     }
 }
 
@@ -420,8 +447,12 @@ mod unit_tests {
             expected_deck_name,
         );
         let mut mock_file_handle = FileHandle::new();
-        mock_file_handle.expect_read().returning(move || Ok(state_str.clone()));
-        mock_file_handle.expect_path().return_const("some_path".to_string());
+        mock_file_handle
+            .expect_read()
+            .returning(move || Ok(state_str.clone()));
+        mock_file_handle
+            .expect_path()
+            .return_const("some_path".to_string());
         mock_file_handle.expect_write().never();
         let actual = State::read(mock_file_handle).unwrap();
         assertions::assert_state_eq(
@@ -436,8 +467,12 @@ mod unit_tests {
     fn read_when_file_handle_read_fails() {
         let state_str = "oh dear";
         let mut mock_file_handle = FileHandle::new();
-        mock_file_handle.expect_read().returning(move || Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
-        mock_file_handle.expect_path().return_const(state_str.to_string());
+        mock_file_handle
+            .expect_read()
+            .returning(move || Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
+        mock_file_handle
+            .expect_path()
+            .return_const(state_str.to_string());
         let actual = State::read(mock_file_handle);
         assert!(actual.is_err());
         assert!(actual
@@ -452,11 +487,12 @@ mod unit_tests {
         let state_path = state_str.clone();
         let state_content = state_str.clone();
         let mut mock_file_handle = FileHandle::new();
-        mock_file_handle.expect_read().returning(move || Ok(state_content.clone()));
+        mock_file_handle
+            .expect_read()
+            .returning(move || Ok(state_content.clone()));
         mock_file_handle.expect_path().return_const(state_path);
         let actual = State::read(mock_file_handle);
         assert!(actual.is_err());
-        println!("{:?}", actual);
         assert!(actual
             .unwrap_err()
             .to_string()
@@ -471,12 +507,16 @@ mod unit_tests {
         let card = fake_card_with_path_decks_and_due_date(card_path, vec![deck_name], due_date);
         let deck = fake_deck_with_name(deck_name);
         let card_parsing_config = ParsingConfig::default();
-        let state = State::new(ParsingConfig::default(), vec![card], vec![deck]);
-        let expected = ron::ser::to_string_pretty(&state, ron::ser::PrettyConfig::default()).unwrap();
+        let state = State::new(card_parsing_config, vec![card], vec![deck]);
+        let expected =
+            ron::ser::to_string_pretty(&state, ron::ser::PrettyConfig::default()).unwrap();
         let mut mock_file_handle = FileHandle::new();
         mock_file_handle.expect_read().never();
         mock_file_handle.expect_path().return_const("".to_string());
-        mock_file_handle.expect_write().with(mockall::predicate::eq(expected)).returning(move |_| Ok(()));
+        mock_file_handle
+            .expect_write()
+            .with(mockall::predicate::eq(expected))
+            .returning(move |_| Ok(()));
         let actual = state.write(mock_file_handle).unwrap();
         assert_eq!((), actual);
     }
@@ -490,11 +530,15 @@ mod unit_tests {
         let card = fake_card_with_path_decks_and_due_date(card_path, vec![deck_name], due_date);
         let deck = fake_deck_with_name(deck_name);
         let card_parsing_config = ParsingConfig::default();
-        let state = State::new(ParsingConfig::default(), vec![card], vec![deck]);
+        let state = State::new(card_parsing_config, vec![card], vec![deck]);
         let mut mock_file_handle = FileHandle::new();
         mock_file_handle.expect_read().never();
-        mock_file_handle.expect_write().returning(move |_| Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
-        mock_file_handle.expect_path().return_const(state_path.to_string());
+        mock_file_handle
+            .expect_write()
+            .returning(move |_| Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
+        mock_file_handle
+            .expect_path()
+            .return_const(state_path.to_string());
         let actual = state.write(mock_file_handle);
         assert!(actual.is_err());
         assert!(actual
@@ -503,11 +547,23 @@ mod unit_tests {
             .contains(&format!("Unable to write State to {}", state_path)));
     }
 
-    // Note: I'm not sure how to make RON fail to get that behaviour under test - as far as I can
-    // tell it checks the type is serialisable at compile time...
-    // #[test]
-    // fn write_when_ron_fails() {
-    //     ...
-    // }
-
+    #[test]
+    fn write_when_ron_fails() {
+        let state_path = "stateful";
+        let mut card_parsing_config = ParsingConfig::default();
+        card_parsing_config.deck_delimiter = mocks::ERROR_ID.to_string();
+        let state = State::new(card_parsing_config, vec![], vec![]);
+        let mut mock_file_handle = FileHandle::new();
+        mock_file_handle.expect_read().never();
+        mock_file_handle.expect_write().never();
+        mock_file_handle
+            .expect_path()
+            .return_const(state_path.to_string());
+        let actual = state.write(mock_file_handle);
+        assert!(actual.is_err());
+        assert!(actual
+            .unwrap_err()
+            .to_string()
+            .contains(&format!("Unable to serialise State to {}", state_path)));
+    }
 }
