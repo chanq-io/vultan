@@ -56,7 +56,7 @@ pub mod assertions {
 
     use super::*;
     use crate::state::card::assertions::assert_cards_near;
-    use crate::state::tools::test_tools::{assertions::assert_length_matches, ExpectContains};
+    use crate::state::tools::test_tools::{assertions::assert_length_matches, Expect};
 
     pub fn assert_hands_near(a: &Vec<Card>, b: &Vec<Card>) {
         assert!(a.len() == b.len());
@@ -68,14 +68,15 @@ pub mod assertions {
     pub fn assert_hand_contains(
         hand: &Hand,
         expected_coefficients: &IntervalCoefficients,
-        expected_queued_items: &Vec<ExpectContains<Card>>,
+        expected_queued_items: &Vec<Expect<Card>>,
     ) {
         assert_eq!(hand.interval_coefficients, expected_coefficients);
         assert_length_matches(&hand.queue, &expected_queued_items);
         for comparator in expected_queued_items.iter() {
             match comparator {
-                ExpectContains::Yes(item) => assert!(hand.queue.contains(&item)),
-                ExpectContains::No(item) => assert!(!hand.queue.contains(&item)),
+                Expect::DoesContain(item) => assert!(hand.queue.contains(&item)),
+                Expect::DoesNotContain(item) => assert!(!hand.queue.contains(&item)),
+                _ => panic!("BAD TEST"),
             }
         }
     }

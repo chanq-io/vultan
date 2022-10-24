@@ -13,9 +13,19 @@ pub mod test_tools {
     use std::collections::HashMap;
 
     #[derive(Debug)]
-    pub enum ExpectContains<T> {
-        Yes(T),
-        No(T),
+    pub enum Expect<T> {
+        DoesContain(T),
+        DoesNotContain(T),
+        Truthy,
+        Falsy,
+    }
+
+    pub fn assert_truthy<T>(expectation: Expect<T>, value: bool) {
+        assert!(match expectation {
+            Expect::Truthy => value,
+            Expect::Falsy => !value,
+            _ => panic!("BAD TEST"),
+        })
     }
 
     fn uid_map_contains<'a, T>(map: &HashMap<String, T>, item: &'a T) -> bool
@@ -30,7 +40,7 @@ pub mod test_tools {
         use super::*;
         use len_trait::Len;
 
-        pub fn assert_length_matches<'a, C, T>(container: &C, expected: &Vec<ExpectContains<T>>)
+        pub fn assert_length_matches<'a, C, T>(container: &C, expected: &Vec<Expect<T>>)
         where
             C: ?Sized + Len,
             T: Default,
@@ -39,7 +49,7 @@ pub mod test_tools {
                 .iter()
                 .filter(|c| {
                     std::mem::discriminant(*c)
-                        == std::mem::discriminant(&ExpectContains::Yes(T::default()))
+                        == std::mem::discriminant(&Expect::DoesContain(T::default()))
                 })
                 .count();
             assert!(container.len() == expected_length);
@@ -47,15 +57,16 @@ pub mod test_tools {
 
         pub fn assert_uid_map_contains<'a, T>(
             map: &HashMap<String, T>,
-            expected: &'a Vec<ExpectContains<T>>,
+            expected: &'a Vec<Expect<T>>,
         ) where
             T: Default + std::fmt::Debug + PartialEq + UID,
         {
             assert_length_matches(map, expected);
             for comparator in expected.iter() {
                 match comparator {
-                    ExpectContains::Yes(item) => assert!(uid_map_contains(map, item)),
-                    ExpectContains::No(item) => assert!(!uid_map_contains(map, item)),
+                    Expect::DoesContain(item) => assert!(uid_map_contains(map, item)),
+                    Expect::DoesNotContain(item) => assert!(!uid_map_contains(map, item)),
+                    _ => panic!("BAD TEST"),
                 }
             }
         }
