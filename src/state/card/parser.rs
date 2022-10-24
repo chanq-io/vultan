@@ -170,152 +170,148 @@ mod unit_tests {
     mod parser {
 
         use super::*;
+        use rstest::*;
 
-        #[test]
-        fn from() {
-            let user_config = ParsingConfig::default();
-            let expected_delimiter = user_config.deck_delimiter.to_string();
-            let parser = Parser::from(user_config).unwrap();
-            assert_eq!(r"tags:(.*)", parser.decks_expression.as_str());
-            assert_eq!(expected_delimiter, parser.deck_delimiter);
-            assert_eq!(
-                r"# Question((?s).*)# Answer",
-                parser.question_expression.as_str()
-            );
-            assert_eq!("# Answer((?s).*)----\n", parser.answer_expression.as_str());
+        fn fake_parsing_config(
+            decks_pattern: ParsingPattern,
+            deck_delimiter: String,
+            question_pattern: ParsingPattern,
+            answer_pattern: ParsingPattern,
+        ) -> ParsingConfig {
+            ParsingConfig {
+                decks_pattern,
+                deck_delimiter,
+                question_pattern,
+                answer_pattern,
+            }
         }
 
-        #[test]
-        fn from_fails_for_malformed_decks_pattern() {
+        fn fake_tagged_line_parsing_pattern(tag: &str) -> ParsingPattern {
+            ParsingPattern::TaggedLine {
+                tag: tag.to_string(),
+            }
+        }
+
+        fn fake_wrapped_multi_line_parsing_pattern(
+            opening_tag: &str,
+            closing_tag: &str,
+        ) -> ParsingPattern {
+            ParsingPattern::WrappedMultiLine {
+                opening_tag: opening_tag.to_string(),
+                closing_tag: closing_tag.to_string(),
+            }
+        }
+
+        fn fake_custom_user_config() -> ParsingConfig {
+            fake_parsing_config(
+                fake_wrapped_multi_line_parsing_pattern("Decks:", "Question:"),
+                "\n - ".to_string(),
+                fake_tagged_line_parsing_pattern("Question:"),
+                fake_tagged_line_parsing_pattern("Answer:"),
+            )
+        }
+
+        fn make_fake_config(
+            tag: Option<&str>,
+            question: Option<&str>,
+            answer: Option<&str>,
+        ) -> ParsingConfig {
             let mut user_config = ParsingConfig::default();
-            user_config.decks_pattern = ParsingPattern::TaggedLine {
-                tag: String::from(r"(("),
-            };
-            let error = Parser::from(user_config);
-            assert!(error.is_err());
-            assert!(error
-                .unwrap_err()
-                .contains("Couldn't make Parser for ParsingConfig"));
+            if let Some(tag) = tag {
+                user_config.decks_pattern = fake_tagged_line_parsing_pattern(tag);
+            } else if let Some(question) = question {
+                user_config.question_pattern = fake_tagged_line_parsing_pattern(question);
+            } else if let Some(answer) = answer {
+                user_config.answer_pattern = fake_tagged_line_parsing_pattern(answer);
+            }
+            user_config
         }
 
-        #[test]
-        fn from_fails_for_malformed_question_pattern() {
-            let mut user_config = ParsingConfig::default();
-            user_config.question_pattern = ParsingPattern::TaggedLine {
-                tag: String::from(r"(("),
-            };
-            let error = Parser::from(user_config);
-            assert!(error.is_err());
-            assert!(error
-                .unwrap_err()
-                .contains("Couldn't make Parser for ParsingConfig"));
+        #[rstest]
+        #[case::default(
+            make_fake_config(None, None, None),
+            Ok((r"tags:(.*)", r"# Question((?s).*)# Answer", "# Answer((?s).*)----\n"))
+        )]
+        #[case::fails_for_malformed_decks_pattern(
+            make_fake_config(Some("(("), None, None),
+            Err("Couldn't make Parser for ParsingConfig")
+        )]
+        #[case::fails_for_malformed_question_pattern(
+            make_fake_config(None, Some("(("), None),
+            Err("Couldn't make Parser for ParsingConfig")
+        )]
+        #[case::fails_for_malformed_answer_pattern(
+            make_fake_config(None, None, Some("((")),
+            Err("Couldn't make Parser for ParsingConfig")
+        )]
+        fn from(#[case] config: ParsingConfig, #[case] expected: Result<(&str, &str, &str), &str>) {
+            let expected_delimiter = config.deck_delimiter.to_string();
+            let actual = Parser::from(config);
+            match expected {
+                Ok((expected_decks, expected_question, expected_answer)) => {
+                    let actual = actual.unwrap();
+                    assert_eq!(expected_decks, actual.decks_expression.as_str());
+                    assert_eq!(expected_delimiter, actual.deck_delimiter);
+                    assert_eq!(expected_question, actual.question_expression.as_str());
+                    assert_eq!(expected_answer, actual.answer_expression.as_str());
+                }
+                Err(expected_message) => {
+                    assert!(actual.is_err());
+                    assert!(actual
+                        .unwrap_err()
+                        .contains("Couldn't make Parser for ParsingConfig"));
+                }
+            }
         }
 
-        #[test]
-        fn from_fails_for_malformed_answer_pattern() {
-            let mut user_config = ParsingConfig::default();
-            user_config.answer_pattern = ParsingPattern::TaggedLine {
-                tag: String::from(r"(("),
-            };
-            let error = Parser::from(user_config);
-            assert!(error.is_err());
-            assert!(error
-                .unwrap_err()
-                .contains("Couldn't make Parser for ParsingConfig"));
-        }
-
-        #[test]
-        fn parse_with_default_config() {
-            let user_config = ParsingConfig::default();
+        #[rstest]
+        #[case::with_default_config(
+            ParsingConfig::default(),
+            "---\nk1: v1\ntags: :a:b:c:\n---\n# Question\nwhat\nis\nthat?\
+            \n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
+            Ok((vec!["a","b","c"], "what\nis\nthat?", "thing"))
+        )]
+        #[case::with_multi_line_decks_single_line_question_single_line_answer(
+            fake_custom_user_config(),
+            "some noise\nDecks:\n a\n - b\n - c\nQuestion: what?\nAnswer: thing\nsome noise",
+            Ok((vec!["a","b","c"], "what?", "thing"))
+        )]
+        #[case::where_decks_expression_has_no_captures(
+            ParsingConfig::default(),
+            "---\nk1: v1\n---\n# Question\nwhat?\
+            \n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
+            Err("Could not match DECKS against pattern")
+        )]
+        #[case::where_question_expression_has_no_captures(
+            ParsingConfig::default(),
+            "---\nk1: v1\ntags: :a:b:c:\n---\n# A Question\nwhat?\
+            \n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
+            Err("Could not match QUESTION against pattern")
+        )]
+        #[case::where_answer_expression_has_no_captures(
+            ParsingConfig::default(),
+            "---\nk1: v1\ntags: :a:b:c:\n---\n# Question\nwhat?\
+            \n# Answer \nthing\n\n--_--\nBacklink: SOMELINK\n",
+            Err("Could not match ANSWER against pattern")
+        )]
+        fn parse(
+            #[case] user_config: ParsingConfig,
+            #[case] input: &str,
+            #[case] expected: Result<(Vec<&str>, &str, &str), &str>,
+        ) {
             let parser = Parser::from(user_config).unwrap();
-            let expected_decks = vec!["a", "b", "c"];
-            let expected_question =
-                "What is the \n answer to life,\n the universe\nand everything?";
-            let expected_answer = "42";
-            let input = format!(
-                "---\na_key: a_value\ntags: :{}:\n\
-                 another_key: another_value\n---\n# Question\n\
-                 {}\n# Answer \n{}\n\n----\nBacklink: SOMELINK\n",
-                expected_decks.join(":"),
-                expected_question,
-                expected_answer
-            );
-
-            let actual = parser.parse(&input).unwrap();
-            assert_eq!(expected_decks, actual.decks);
-            assert_eq!(expected_question, actual.question);
-            assert_eq!(expected_answer, actual.answer);
-        }
-
-        #[test]
-        fn parse_with_multi_line_decks_single_line_question_single_line_answer() {
-            let user_config = ParsingConfig {
-                decks_pattern: ParsingPattern::WrappedMultiLine {
-                    opening_tag: String::from(r"Decks:"),
-                    closing_tag: String::from(r"Question:"),
-                },
-                deck_delimiter: String::from("\n - "),
-                question_pattern: ParsingPattern::TaggedLine {
-                    tag: String::from(r"Question:"),
-                },
-                answer_pattern: ParsingPattern::TaggedLine {
-                    tag: String::from(r"Answer:"),
-                },
-            };
-            let expected_delimiter = user_config.deck_delimiter.to_string();
-            let expected_decks = vec!["a", "b", "c"];
-            let expected_question = "What is the answer to life, the universe and everything?";
-            let expected_answer = "42";
-            let parser = Parser::from(user_config).unwrap();
-            let input = format!(
-                "some noise\nDecks: {}\nQuestion: {}\nAnswer: {}\nsome noise",
-                expected_decks.join(&expected_delimiter),
-                expected_question,
-                expected_answer
-            );
-            let actual = parser.parse(&input).unwrap();
-            assert_eq!(expected_decks, actual.decks);
-            assert_eq!(expected_question, actual.question);
-            assert_eq!(expected_answer, actual.answer);
-        }
-
-        #[test]
-        fn parse_where_decks_expression_has_no_captures() {
-            let user_config = ParsingConfig::default();
-            let parser = Parser::from(user_config).unwrap();
-            let input = "---\na_key: a_value\nanother_key: another_value\n---\n# Question\n\
-                         a question?\n# Answer \nan answer\n\n----\nBacklink: SOMELINK\n";
             let actual = parser.parse(&input);
-            assert!(actual.is_err());
-            assert!(actual
-                .unwrap_err()
-                .contains("Could not match DECKS against pattern"));
-        }
-
-        #[test]
-        fn parse_where_question_expression_has_no_captures() {
-            let user_config = ParsingConfig::default();
-            let parser = Parser::from(user_config).unwrap();
-            let input = "---\ntags: :a:\nanother_key: another_value\n---\n# A Question\n\
-                         a question?\n# Answer \nan answer\n\n----\nBacklink: SOMELINK\n";
-            let actual = parser.parse(&input);
-            assert!(actual.is_err());
-            assert!(actual
-                .unwrap_err()
-                .contains("Could not match QUESTION against pattern"));
-        }
-
-        #[test]
-        fn parse_where_answer_expression_has_no_captures() {
-            let user_config = ParsingConfig::default();
-            let parser = Parser::from(user_config).unwrap();
-            let input = "---\ntags: :a:\nanother_key: another_value\n---\n# Question\n\
-                         a question?\n# Answer \nan answer\n\n--_--\nBacklink: SOMELINK\n";
-            let actual = parser.parse(&input);
-            assert!(actual.is_err());
-            assert!(actual
-                .unwrap_err()
-                .contains("Could not match ANSWER against pattern"));
+            match expected {
+                Ok((expected_decks, expected_question, expected_answer)) => {
+                    let actual = actual.unwrap();
+                    assert_eq!(expected_decks, actual.decks);
+                    assert_eq!(expected_question, actual.question);
+                    assert_eq!(expected_answer, actual.answer);
+                }
+                Err(expected_message) => {
+                    assert!(actual.unwrap_err().contains(expected_message));
+                }
+            }
         }
     }
 }
