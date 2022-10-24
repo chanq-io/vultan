@@ -211,37 +211,38 @@ mod unit_tests {
             )
         }
 
-        fn make_fake_config(
-            tag: Option<&str>,
-            question: Option<&str>,
-            answer: Option<&str>,
-        ) -> ParsingConfig {
+        fn make_fake_config(field: &str, value: &str) -> ParsingConfig {
             let mut user_config = ParsingConfig::default();
-            if let Some(tag) = tag {
-                user_config.decks_pattern = fake_tagged_line_parsing_pattern(tag);
-            } else if let Some(question) = question {
-                user_config.question_pattern = fake_tagged_line_parsing_pattern(question);
-            } else if let Some(answer) = answer {
-                user_config.answer_pattern = fake_tagged_line_parsing_pattern(answer);
-            }
+            match field.to_lowercase().as_str() {
+                "decks" => {
+                    user_config.decks_pattern = fake_tagged_line_parsing_pattern(value);
+                }
+                "question" => {
+                    user_config.decks_pattern = fake_tagged_line_parsing_pattern(value);
+                }
+                "answer" => {
+                    user_config.decks_pattern = fake_tagged_line_parsing_pattern(value);
+                }
+                _ => panic!("BAD TEST"),
+            };
             user_config
         }
 
         #[rstest]
         #[case::default(
-            make_fake_config(None, None, None),
+            ParsingConfig::default(),
             Ok((r"tags:(.*)", r"# Question((?s).*)# Answer", "# Answer((?s).*)----\n"))
         )]
         #[case::fails_for_malformed_decks_pattern(
-            make_fake_config(Some("(("), None, None),
+            make_fake_config("decks", "(("),
             Err("Couldn't make Parser for ParsingConfig")
         )]
         #[case::fails_for_malformed_question_pattern(
-            make_fake_config(None, Some("(("), None),
+            make_fake_config("question", "(("),
             Err("Couldn't make Parser for ParsingConfig")
         )]
         #[case::fails_for_malformed_answer_pattern(
-            make_fake_config(None, None, Some("((")),
+            make_fake_config("answer", "(("),
             Err("Couldn't make Parser for ParsingConfig")
         )]
         fn from(#[case] config: ParsingConfig, #[case] expected: Result<(&str, &str, &str), &str>) {
@@ -267,9 +268,8 @@ mod unit_tests {
         #[rstest]
         #[case::with_default_config(
             ParsingConfig::default(),
-            "---\nk1: v1\ntags: :a:b:c:\n---\n# Question\nwhat\nis\nthat?\
-            \n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
-            Ok((vec!["a","b","c"], "what\nis\nthat?", "thing"))
+            "---\nk1: v1\ntags: :a:b:c:\n---\n# Question\nwho\ndis?\n# Answer\nme\n\n----\n",
+            Ok((vec!["a","b","c"], "who\ndis?", "me"))
         )]
         #[case::with_multi_line_decks_single_line_question_single_line_answer(
             fake_custom_user_config(),
@@ -278,20 +278,17 @@ mod unit_tests {
         )]
         #[case::where_decks_expression_has_no_captures(
             ParsingConfig::default(),
-            "---\nk1: v1\n---\n# Question\nwhat?\
-            \n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
+            "---\nk1: v1\n---\n# Question\nwhat?\n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
             Err("Could not match DECKS against pattern")
         )]
         #[case::where_question_expression_has_no_captures(
             ParsingConfig::default(),
-            "---\nk1: v1\ntags: :a:b:c:\n---\n# A Question\nwhat?\
-            \n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
+            "---\nk1: v1\ntags: :a:\n---\n# A Q\nwhat?\n# Answer \nthing\n\n----\n",
             Err("Could not match QUESTION against pattern")
         )]
         #[case::where_answer_expression_has_no_captures(
             ParsingConfig::default(),
-            "---\nk1: v1\ntags: :a:b:c:\n---\n# Question\nwhat?\
-            \n# Answer \nthing\n\n--_--\nBacklink: SOMELINK\n",
+            "---\ntags: :a:\n---\n# Question\nwho?\n# Answer \ntme\n\n--_--\n",
             Err("Could not match ANSWER against pattern")
         )]
         fn parse(
