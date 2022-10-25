@@ -40,7 +40,7 @@ pub mod test_tools {
         use super::*;
         use len_trait::Len;
 
-        pub fn assert_length_matches<'a, C, T>(container: &C, expected: &Vec<Expect<T>>)
+        pub fn assert_length_matches<'a, C, T>(container: &C, expected: &[Expect<T>])
         where
             C: ?Sized + Len,
             T: Default,
@@ -55,10 +55,8 @@ pub mod test_tools {
             assert!(container.len() == expected_length);
         }
 
-        pub fn assert_uid_map_contains<'a, T>(
-            map: &HashMap<String, T>,
-            expected: &'a Vec<Expect<T>>,
-        ) where
+        pub fn assert_uid_map_contains<'a, T>(map: &HashMap<String, T>, expected: &'a [Expect<T>])
+        where
             T: Default + std::fmt::Debug + PartialEq + UID,
         {
             assert_length_matches(map, expected);

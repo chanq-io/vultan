@@ -276,17 +276,17 @@ mod unit_tests {
             "some noise\nDecks:\n a\n - b\n - c\nQuestion: what?\nAnswer: thing\nsome noise",
             Ok((vec!["a","b","c"], "what?", "thing"))
         )]
-        #[case::where_decks_expression_has_no_captures(
+        #[case::with_decks_expression_that_have_no_captures(
             ParsingConfig::default(),
             "---\nk1: v1\n---\n# Question\nwhat?\n# Answer \nthing\n\n----\nBacklink: SOMELINK\n",
             Err("Could not match DECKS against pattern")
         )]
-        #[case::where_question_expression_has_no_captures(
+        #[case::with_question_expression_that_have_no_captures(
             ParsingConfig::default(),
             "---\nk1: v1\ntags: :a:\n---\n# A Q\nwhat?\n# Answer \nthing\n\n----\n",
             Err("Could not match QUESTION against pattern")
         )]
-        #[case::where_answer_expression_has_no_captures(
+        #[case::with_answer_expression_that_have_no_captures(
             ParsingConfig::default(),
             "---\ntags: :a:\n---\n# Question\nwho?\n# Answer \ntme\n\n--_--\n",
             Err("Could not match ANSWER against pattern")

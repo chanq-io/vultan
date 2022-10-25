@@ -59,6 +59,18 @@ mod mocks {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    use rstest::*;
+
+    fn assert_result<T: std::fmt::Debug + PartialEq, E1: std::fmt::Debug, E2>(
+        expected: Result<T, E1>,
+        actual: Result<T, E2>,
+    ) {
+        if let Ok(actual) = actual {
+            assert_eq!(expected.expect("BAD TEST"), actual);
+        } else {
+            assert!(expected.is_err())
+        }
+    }
 
     #[test]
     fn from() {
@@ -74,34 +86,19 @@ mod unit_tests {
         assert_eq!(path_and_content, handle.path());
     }
 
-    #[test]
-    fn read_should_call_read_file() {
-        let path_and_content = "hello";
-        let handle = FileHandle::from(path_and_content.to_string());
-        let actual = handle.read().unwrap();
-        assert_eq!(path_and_content, &actual);
-    }
-
-    #[test]
-    fn read_should_propagate_error() {
-        let path_and_content = mocks::ERRONEOUS_PATH;
-        let handle = FileHandle::from(path_and_content.to_string());
-        assert!(handle.read().is_err());
-    }
-
-    #[test]
-    fn write_should_call_write_file() {
-        let (path, content) = ("hello", "world");
+    #[rstest]
+    #[case::should_call_read_file("hello", Ok("hello".to_string()))]
+    #[case::should_propagate_error(mocks::ERRONEOUS_PATH, Err(()))]
+    fn read(#[case] path: &str, #[case] expected: Result<String, ()>) {
         let handle = FileHandle::from(path.to_string());
-        let actual = handle.write(content.to_string()).unwrap();
-        assert_eq!((), actual);
+        assert_result(expected, handle.read());
     }
 
-    #[test]
-    fn write_should_propagate_error() {
-        let (path, content) = (mocks::ERRONEOUS_PATH, "");
+    #[rstest]
+    #[case::should_call_read_file("hello", "world", Ok(()))]
+    #[case::should_propagate_error(mocks::ERRONEOUS_PATH, "", Err(()))]
+    fn write(#[case] path: &str, #[case] content: &str, #[case] expected: Result<(), ()>) {
         let handle = FileHandle::from(path.to_string());
-        let actual = handle.write(content.to_string());
-        assert!(handle.read().is_err());
+        assert_result(expected, handle.write(content.to_string()));
     }
 }

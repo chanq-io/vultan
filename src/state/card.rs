@@ -304,13 +304,13 @@ mod unit_tests {
     }
 
     #[rstest]
-    #[case::when_due_date_in_past(Utc::now(), Expect::Truthy)]
+    #[case::when_due_date_in_past(Utc::now() - Duration::days(100), Expect::Truthy)]
+    #[case::when_due_date_in_present(Utc::now(), Expect::Truthy)]
     #[case::when_due_date_in_future(Utc::now() + Duration::days(100), Expect::Falsy)]
     fn is_due_when_due_date_in_past(
         #[case] due_date: chrono::DateTime<Utc>,
         #[case] expectation: Expect<i32>,
     ) {
-        // Note, testing the exact present would be painful so this is the best next thing
         let mut revision_settings = RevisionSettings::default();
         revision_settings.due = due_date;
         let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
