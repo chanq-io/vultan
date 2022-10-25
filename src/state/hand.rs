@@ -18,7 +18,7 @@ impl<'h> Hand<'h> {
             _ => Ok(Self {
                 queue: hand_cards.into_iter().collect(),
                 interval_coefficients: &deck.interval_coefficients,
-            })
+            }),
         }
     }
 
@@ -55,13 +55,10 @@ impl<'h> Hand<'h> {
 pub mod assertions {
 
     use super::*;
-    use crate::state::tools::test_tools::{
-        ExpectContains,
-        assertions::assert_length_matches
-    };
     use crate::state::card::assertions::assert_cards_near;
+    use crate::state::tools::test_tools::{assertions::assert_length_matches, Expect};
 
-    pub fn assert_hands_near(a: &Vec<Card>, b: &Vec<Card>) {
+    pub fn assert_hands_near(a: &[Card], b: &[Card]) {
         assert!(a.len() == b.len());
         for (x, y) in a.iter().zip(b.iter()) {
             assert_cards_near(x, y);
@@ -71,14 +68,15 @@ pub mod assertions {
     pub fn assert_hand_contains(
         hand: &Hand,
         expected_coefficients: &IntervalCoefficients,
-        expected_queued_items: &Vec<ExpectContains<Card>>
+        expected_queued_items: &[Expect<Card>],
     ) {
         assert_eq!(hand.interval_coefficients, expected_coefficients);
         assert_length_matches(&hand.queue, &expected_queued_items);
         for comparator in expected_queued_items.iter() {
             match comparator {
-                ExpectContains::Yes(item) => assert!(hand.queue.contains(&item)),
-                ExpectContains::No(item) => assert!(!hand.queue.contains(&item)),
+                Expect::DoesContain(item) => assert!(hand.queue.contains(&item)),
+                Expect::DoesNotContain(item) => assert!(!hand.queue.contains(&item)),
+                _ => panic!("BAD TEST"),
             }
         }
     }
@@ -90,7 +88,10 @@ mod unit_tests {
     use super::*;
     use crate::state::card::revision_settings::test_tools::make_expected_revision_settings;
     use crate::state::{card::RevisionSettings, deck::IntervalCoefficients};
-    use chrono::{DateTime, Duration, Utc};
+    use chrono::{Duration, Utc};
+    use rstest::*;
+
+    const FAKE_DECK_ID: &str = "cephelapoda";
 
     fn make_card(path: &str, deck: &str) -> Card {
         Card::new(
@@ -112,82 +113,65 @@ mod unit_tests {
         card
     }
 
-    fn make_card_with_due_date(path: &str, deck: &str, due: DateTime<Utc>) -> Card {
-        let mut card = make_card(path, deck);
-        card.revision_settings.due = due;
-        card
-    }
-
-    fn make_deck(name: &str, card_paths: &Vec<&str>) -> Deck {
+    fn make_deck(name: &str, card_paths: &[&str]) -> Deck {
         Deck::new(name, card_paths.to_owned(), IntervalCoefficients::default())
     }
 
-    fn make_cards(deck_id: &str, card_paths: &Vec<&str>) -> Vec<Card> {
+    fn make_cards(deck_id: &str, card_paths: &[&str]) -> Vec<Card> {
         card_paths.iter().map(|p| make_card(p, deck_id)).collect()
     }
 
-    fn make_deck_and_cards(deck_id: &str, card_paths: Vec<&str>) -> (Deck, Vec<Card>) {
-        (
-            make_deck(deck_id, &card_paths),
-            make_cards(deck_id, &card_paths),
-        )
+    fn concat_cards(a: Vec<Card>, b: Vec<Card>) -> Vec<Card> {
+        vec![a, b].concat()
     }
 
-    #[test]
-    fn from_creates_shuffled_card_queue_from_deck_and_cards() {
-        let input_card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
-        let deck_id = "cephelapoda";
-        let (deck, cards) = make_deck_and_cards(deck_id, input_card_paths);
-        let hand = Hand::from(&deck, cards.iter().collect()).unwrap();
-        let expected_card_paths = vec!["squid", "cuttlefish", "nautilus", "octopus"];
-        let expected = make_cards(deck_id, &expected_card_paths);
-        let actual: Vec<Card> = hand.queue.into_iter().collect();
-        assertions::assert_hands_near(&expected, &actual);
+    fn fake_future_card(path: &str) -> Card {
+        let mut card = make_card(path, FAKE_DECK_ID);
+        card.revision_settings.due = Utc::now() + Duration::days(4);
+        card
     }
 
-    #[test]
-    fn from_creates_shuffled_card_queue_containing_due_cards_only() {
-        let input_card_paths = vec!["squid", "cuttlefish", "nautilus"];
-        let deck_id = "cephelapoda";
-        let (deck, mut cards) = make_deck_and_cards(deck_id, input_card_paths);
-        let future_due_date = Utc::now() + Duration::days(4);
-        let octopus_card = make_card_with_due_date("octopus", deck_id, future_due_date);
-        cards.push(octopus_card);
-        let hand = Hand::from(&deck, cards.iter().collect()).unwrap();
-        let expected_card_paths = vec!["cuttlefish", "nautilus", "squid"];
-        let expected = make_cards(deck_id, &expected_card_paths);
-        let actual: Vec<Card> = hand.queue.into_iter().collect();
-        assertions::assert_hands_near(&expected, &actual);
+    fn fake_cards(paths: Vec<&str>) -> Vec<Card> {
+        make_cards(FAKE_DECK_ID, &paths)
     }
 
-    #[test]
-    fn from_creates_shuffled_card_queue_containing_cards_in_deck_only() {
-        let input_card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
-        let deck_id = "cephelapoda";
-        let (deck, mut cards) = make_deck_and_cards(deck_id, input_card_paths);
-        let clam_card = make_card("clam", "bivalvia");
-        cards.push(clam_card);
-        let hand = Hand::from(&deck, cards.iter().collect()).unwrap();
-        let expected_card_paths = vec!["squid", "cuttlefish", "nautilus", "octopus"];
-        let expected = make_cards(deck_id, &expected_card_paths);
-        let actual: Vec<Card> = hand.queue.into_iter().collect();
-        assertions::assert_hands_near(&expected, &actual);
-    }
-
-    #[test]
-    fn from_returns_error_if_no_cards_exist_for_deck() {
-        let deck_id = "cephelapoda";
-        let (deck, _) = make_deck_and_cards(deck_id, Vec::new());
-        let clam_card = make_card("clam", "bivalvia");
-        let hand_error = Hand::from(&deck, vec![&clam_card]);
-        assert!(hand_error.is_err());
-        assert!(hand_error.unwrap_err().contains(deck_id));
+    #[rstest]
+    #[case::creates_shuffled_card_queue_from_deck_and_cards(
+        fake_cards(vec!["octopus", "squid", "cuttlefish", "nautilus"]),
+        Ok(vec!["squid", "cuttlefish", "nautilus", "octopus"])
+    )]
+    #[case::creates_shuffled_card_queue_containing_due_cards_only(
+        concat_cards(fake_cards(vec!["squid", "cuttlefish", "nautilus"]), vec![fake_future_card("octopus")]),
+        Ok(vec!["cuttlefish", "nautilus", "squid"])
+    )]
+    #[case::creates_shuffled_card_queue_containing_cards_in_deck_only(
+        concat_cards(fake_cards(vec!["octopus", "squid", "cuttlefish", "nautilus"]), vec![make_card("clam", "bivalvia")]),
+        Ok(vec!["squid", "cuttlefish", "nautilus", "octopus"])
+    )]
+    #[case::returns_error_if_no_cards_exist_for_deck(vec![make_card("clam", "bivalvia")], Err(FAKE_DECK_ID))]
+    fn from(#[case] cards: Vec<Card>, #[case] expected: Result<Vec<&str>, &str>) {
+        let card_paths: Vec<&str> = cards.iter().map(|c| c.path.as_str()).collect();
+        let deck = make_deck(FAKE_DECK_ID, &card_paths);
+        let hand = Hand::from(&deck, cards.iter().collect());
+        match hand {
+            Ok(hand) => {
+                let expected = make_cards(FAKE_DECK_ID, &expected.expect("BAD TEST"));
+                let actual: Vec<Card> = hand.queue.into_iter().collect();
+                assertions::assert_hands_near(&expected, &actual);
+            }
+            Err(err) => {
+                assert!(err.contains(FAKE_DECK_ID));
+            }
+        }
     }
 
     #[test]
     fn revise_until_none_fail_with_empty_queue() {
         let interval_coefficients = IntervalCoefficients::default();
-        let hand = Hand{ queue: VecDeque::new(), interval_coefficients: &&interval_coefficients};
+        let hand = Hand {
+            queue: VecDeque::new(),
+            interval_coefficients: &&interval_coefficients,
+        };
         let expected: Vec<Card> = Vec::new();
         let actual = hand.revise_until_none_fail(|card| Score::Easy);
         assert_eq!(expected, actual);

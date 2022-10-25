@@ -10,10 +10,10 @@ pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed pub
 pub use score::Score;
 use snafu::{prelude::*, Whatever};
 
-#[cfg(test)]
-use mockall_double::double;
 #[cfg_attr(test, double)]
 use super::file::FileHandle;
+#[cfg(test)]
+use mockall_double::double;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
@@ -44,10 +44,12 @@ impl Card {
 
     pub fn from(file_handle: FileHandle, parser: &impl Parse) -> Result<Self, Whatever> {
         let file_path = file_handle.path();
-        let file_content = file_handle.read()
-            .with_whatever_context(|_| format!("Unable to read Card from {}", file_path))?;
-        let parsed_fields = parser.parse(&file_content)
-            .with_whatever_context(|_| format!("Unable to parse Card from {}", file_path))?;
+        let file_content = file_handle
+            .read()
+            .with_whatever_context(|_| format!("Unable to read Card from \"{}\"", file_path))?;
+        let parsed_fields = parser
+            .parse(&file_content)
+            .with_whatever_context(|_| format!("Unable to parse Card from \"{}\"", file_path))?;
         Ok(Self {
             path: file_path.to_string(),
             decks: parsed_fields.decks.iter().map(|s| s.to_string()).collect(),
@@ -113,10 +115,14 @@ mod unit_tests {
     use super::revision_settings::test_tools::make_expected_revision_settings;
     use super::*;
     use crate::state::file::MockFileHandle;
+    use crate::state::tools::test_tools::{assert_truthy, Expect};
     use chrono::{Duration, Utc};
     use mockall::predicate::eq;
     use parser::MockParser;
     use parser::ParsedCardFields;
+    use rstest::*;
+
+    const FAKE_PATH: &str = "a_path";
 
     fn make_fake_card(
         path: &str,
@@ -179,26 +185,28 @@ mod unit_tests {
         mock_parser
     }
 
-    fn make_successful_file_handle(path: &str, expected_file_output: &str) -> FileHandle {
+    #[fixture]
+    fn successful_file_handle() -> MockFileHandle {
         let mut mock_file_handle = MockFileHandle::new();
-        let content = expected_file_output.to_owned().to_string();
+        let content = FAKE_PATH.to_owned().to_string();
         mock_file_handle
             .expect_path()
-            .return_const(path.to_string());
+            .return_const(FAKE_PATH.to_string());
         mock_file_handle
             .expect_read()
             .returning(move || Ok(content.clone()));
         mock_file_handle
     }
 
-    fn make_failing_file_handle(path: &str) -> FileHandle {
+    #[fixture]
+    fn failing_file_handle() -> FileHandle {
         let mut mock_file_handle = MockFileHandle::new();
         mock_file_handle
             .expect_read()
             .returning(move || Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
         mock_file_handle
             .expect_path()
-            .return_const(path.to_string());
+            .return_const(FAKE_PATH.to_string());
         mock_file_handle
     }
 
@@ -215,49 +223,37 @@ mod unit_tests {
         assertions::assert_cards_near(&expected, &actual);
     }
 
-    #[test]
-    fn from() {
-        let path = "hello";
-        let expected_file_content = path;
-        let file_handle = make_successful_file_handle(path, path);
+    #[rstest]
+    fn from(successful_file_handle: MockFileHandle) {
         let parsed_fields = make_fake_parsed_fields(vec!["tag"], "what?", "that");
-        let mock_parser = make_mock_parser(path, Result::Ok(parsed_fields.clone()));
-        let expected = make_expected_card(path, &parsed_fields, RevisionSettings::default());
-        let actual = Card::from(file_handle, &mock_parser).unwrap();
+        let mock_parser = make_mock_parser(FAKE_PATH, Result::Ok(parsed_fields.clone()));
+        let expected = make_expected_card(FAKE_PATH, &parsed_fields, RevisionSettings::default());
+        let actual = Card::from(successful_file_handle, &mock_parser).unwrap();
         assertions::assert_cards_near(&expected, &actual);
     }
 
-    #[test]
-    fn from_where_parser_fails() {
-        let path = "hello";
-        let file_handle = make_successful_file_handle(path, path);
-        let parsed_fields = make_fake_parsed_fields(vec!["tag"], "what?", "that");
-        let parser_error = Result::Err(path.to_string());
-        let mock_parser = make_mock_parser(path, parser_error);
-        let actual = Card::from(file_handle, &mock_parser);
+    #[rstest]
+    fn from_where_parser_fails(successful_file_handle: MockFileHandle) {
+        let parser_error = Result::Err(FAKE_PATH.to_string());
+        let mock_parser = make_mock_parser(FAKE_PATH, parser_error);
+        let actual = Card::from(successful_file_handle, &mock_parser);
         assert!(actual.is_err());
         assert!(actual
             .unwrap_err()
             .to_string()
-            .contains("Unable to parse Card from hello"));
+            .contains("Unable to parse Card from \"a_path\""));
     }
 
-    #[test]
-    fn from_where_file_read_fails() {
-        let path = "hello";
-        let file_handle = make_failing_file_handle(path);
+    #[rstest]
+    fn from_where_file_read_fails(failing_file_handle: MockFileHandle) {
         let unexpected_message = "UNEXPECTED";
-        let mock_parser = make_mock_parser(path, Result::Err(unexpected_message.to_string()));
-        let expected_message = format!("Unable to read Card from {}", path);
-        let actual = Card::from(file_handle, &mock_parser);
+        let mock_parser = make_mock_parser(FAKE_PATH, Result::Err(unexpected_message.to_string()));
+        let expected_message = format!("Unable to read Card from \"{}\"", FAKE_PATH);
+        let actual = Card::from(failing_file_handle, &mock_parser);
         assert!(actual.is_err());
         let actual_err = actual.unwrap_err();
-        assert!(actual_err
-            .to_string()
-            .contains(&expected_message));
-        assert!(!actual_err
-            .to_string()
-            .contains(&unexpected_message));
+        assert!(actual_err.to_string().contains(&expected_message));
+        assert!(!actual_err.to_string().contains(&unexpected_message));
     }
 
     #[test]
@@ -307,40 +303,33 @@ mod unit_tests {
         assert_eq!(expected, actual)
     }
 
-    #[test]
-    fn is_due_when_due_date_in_past() {
-        // Note, testing the exact present would be painful so this is the best next thing
+    #[rstest]
+    #[case::when_due_date_in_past(Utc::now() - Duration::days(100), Expect::Truthy)]
+    #[case::when_due_date_in_present(Utc::now(), Expect::Truthy)]
+    #[case::when_due_date_in_future(Utc::now() + Duration::days(100), Expect::Falsy)]
+    fn is_due_when_due_date_in_past(
+        #[case] due_date: chrono::DateTime<Utc>,
+        #[case] expectation: Expect<i32>,
+    ) {
         let mut revision_settings = RevisionSettings::default();
-        revision_settings.due = Utc::now();
+        revision_settings.due = due_date;
         let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
         let card = make_expected_card("some-identifier", &fields, revision_settings);
-        assert!(card.is_due());
+        assert_truthy(expectation, card.is_due());
     }
 
-    #[test]
-    fn is_due_when_due_date_in_future() {
-        let mut revision_settings = RevisionSettings::default();
-        revision_settings.due = Utc::now() + Duration::days(100);
-        let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
-        let card = make_expected_card("some-identifier", &fields, revision_settings);
-        assert!(!card.is_due());
-    }
-
-    #[test]
-    fn in_deck_when_decks_contains_id() {
+    #[rstest]
+    #[case::when_decks_contains_id(vec!["deck", "THIS"], "THIS", Expect::Truthy)]
+    #[case::when_decks_do_not_contain_id(vec![], "THIS", Expect::Falsy)]
+    fn in_deck(
+        #[case] decks: Vec<&'static str>,
+        #[case] input: &'static str,
+        #[case] expectation: Expect<i32>,
+    ) {
         let revision_settings = RevisionSettings::default();
-        let deck_id = "some_deck";
-        let fields = make_fake_parsed_fields(vec!["deck", deck_id], "q?", "ans");
+        let fields = make_fake_parsed_fields(decks, "q?", "ans");
         let card = make_expected_card("some-identifier", &fields, RevisionSettings::default());
-        assert!(card.in_deck(deck_id));
-    }
-
-    #[test]
-    fn in_deck_when_decks_do_not_contain_id() {
-        let revision_settings = RevisionSettings::default();
-        let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
-        let card = make_expected_card("some-identifier", &fields, RevisionSettings::default());
-        assert!(!card.in_deck("no"));
+        assert_truthy(expectation, card.in_deck(input));
     }
 
     #[test]
