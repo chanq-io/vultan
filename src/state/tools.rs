@@ -1,3 +1,5 @@
+#[cfg(test)]
+use mockall::mock;
 pub trait UID {
     fn uid(&self) -> &str;
 }
@@ -6,8 +8,25 @@ pub trait Merge<T> {
     fn merge(self, other: &T) -> Self;
 }
 
+pub trait IO {
+    fn path(&self) -> &str;
+    fn read(&self) -> Result<String, std::io::Error>;
+    fn write(&self, content: String) -> Result<(), std::io::Error>;
+}
+
 #[cfg(test)]
 pub mod test_tools {
+
+    mock! {
+        // Structure to mock
+        pub IO {}
+        // First trait to implement on C
+        impl IO for IO {
+            fn path(&self) -> &str;
+            fn read(&self) -> Result<String, std::io::Error>;
+            fn write(&self, content: String) -> Result<(), std::io::Error>;
+        }
+    }
 
     use super::*;
     use std::collections::HashMap;

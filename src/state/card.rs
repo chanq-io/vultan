@@ -3,18 +3,14 @@ pub mod revision_settings; // Shouldn't need to be exposed publically
 pub mod score;
 
 use super::deck::IntervalCoefficients;
+use super::tools::IO;
 use super::tools::{Merge, UID};
 use chrono::Utc;
 use parser::Parse;
 pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed publically
 pub use score::Score;
-use snafu::{prelude::*, Whatever};
-
-#[cfg_attr(test, double)]
-use super::file::FileHandle;
-#[cfg(test)]
-use mockall_double::double;
 use serde::{Deserialize, Serialize};
+use snafu::{prelude::*, Whatever};
 
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
 pub struct Card {
@@ -42,7 +38,7 @@ impl Card {
         }
     }
 
-    pub fn from(file_handle: FileHandle, parser: &impl Parse) -> Result<Self, Whatever> {
+    pub fn from(file_handle: impl IO, parser: &impl Parse) -> Result<Self, Whatever> {
         let file_path = file_handle.path();
         let file_content = file_handle
             .read()
@@ -114,8 +110,7 @@ mod unit_tests {
 
     use super::revision_settings::test_tools::make_expected_revision_settings;
     use super::*;
-    use crate::state::file::MockFileHandle;
-    use crate::state::tools::test_tools::{assert_truthy, Expect};
+    use crate::state::tools::test_tools::{assert_truthy, Expect, MockIO};
     use chrono::{Duration, Utc};
     use mockall::predicate::eq;
     use parser::MockParser;
@@ -186,8 +181,8 @@ mod unit_tests {
     }
 
     #[fixture]
-    fn successful_file_handle() -> MockFileHandle {
-        let mut mock_file_handle = MockFileHandle::new();
+    fn successful_file_handle() -> MockIO {
+        let mut mock_file_handle = MockIO::new();
         let content = FAKE_PATH.to_owned().to_string();
         mock_file_handle
             .expect_path()
@@ -199,8 +194,8 @@ mod unit_tests {
     }
 
     #[fixture]
-    fn failing_file_handle() -> FileHandle {
-        let mut mock_file_handle = MockFileHandle::new();
+    fn failing_file_handle() -> MockIO {
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle
             .expect_read()
             .returning(move || Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
@@ -224,7 +219,7 @@ mod unit_tests {
     }
 
     #[rstest]
-    fn from(successful_file_handle: MockFileHandle) {
+    fn from(successful_file_handle: MockIO) {
         let parsed_fields = make_fake_parsed_fields(vec!["tag"], "what?", "that");
         let mock_parser = make_mock_parser(FAKE_PATH, Result::Ok(parsed_fields.clone()));
         let expected = make_expected_card(FAKE_PATH, &parsed_fields, RevisionSettings::default());
@@ -233,7 +228,7 @@ mod unit_tests {
     }
 
     #[rstest]
-    fn from_where_parser_fails(successful_file_handle: MockFileHandle) {
+    fn from_where_parser_fails(successful_file_handle: MockIO) {
         let parser_error = Result::Err(FAKE_PATH.to_string());
         let mock_parser = make_mock_parser(FAKE_PATH, parser_error);
         let actual = Card::from(successful_file_handle, &mock_parser);
@@ -245,7 +240,7 @@ mod unit_tests {
     }
 
     #[rstest]
-    fn from_where_file_read_fails(failing_file_handle: MockFileHandle) {
+    fn from_where_file_read_fails(failing_file_handle: MockIO) {
         let unexpected_message = "UNEXPECTED";
         let mock_parser = make_mock_parser(FAKE_PATH, Result::Err(unexpected_message.to_string()));
         let expected_message = format!("Unable to read Card from \"{}\"", FAKE_PATH);

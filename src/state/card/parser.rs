@@ -59,10 +59,10 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn from(user_config: ParsingConfig) -> Result<Self, String> {
+    pub fn from(user_config: &ParsingConfig) -> Result<Self, String> {
         let partial_error = format!("Couldn't make Parser for {:?}", &user_config);
         Ok(Self {
-            deck_delimiter: user_config.deck_delimiter,
+            deck_delimiter: user_config.deck_delimiter.clone(),
             decks_expression: Self::make_regex(&user_config.decks_pattern, &partial_error)?,
             question_expression: Self::make_regex(&user_config.question_pattern, &partial_error)?,
             answer_expression: Self::make_regex(&user_config.answer_pattern, &partial_error)?,
@@ -247,7 +247,7 @@ mod unit_tests {
         )]
         fn from(#[case] config: ParsingConfig, #[case] expected: Result<(&str, &str, &str), &str>) {
             let expected_delimiter = config.deck_delimiter.to_string();
-            let actual = Parser::from(config);
+            let actual = Parser::from(&config);
             match expected {
                 Ok((expected_decks, expected_question, expected_answer)) => {
                     let actual = actual.unwrap();
@@ -296,7 +296,7 @@ mod unit_tests {
             #[case] input: &str,
             #[case] expected: Result<(Vec<&str>, &str, &str), &str>,
         ) {
-            let parser = Parser::from(user_config).unwrap();
+            let parser = Parser::from(&user_config).unwrap();
             let actual = parser.parse(&input);
             match expected {
                 Ok((expected_decks, expected_question, expected_answer)) => {

@@ -1,33 +1,25 @@
-#[cfg(test)]
-use mockall::automock;
-#[cfg(test)]
-use mocks::mock_read_file as read_file;
-#[cfg(test)]
-use mocks::mock_write_file as write_file;
-
-#[cfg(not(test))]
-use std::fs::read_to_string as read_file;
-#[cfg(not(test))]
-use std::fs::write as write_file;
+use super::tools::IO;
 
 #[derive(Debug)]
 pub struct FileHandle {
     pub path: String,
 }
 
-#[cfg_attr(test, automock())]
 impl FileHandle {
     pub fn from(path: String) -> Self {
-        FileHandle { path }
+        Self { path }
     }
-    pub fn path(&self) -> &str {
+}
+
+impl IO for FileHandle {
+    fn path(&self) -> &str {
         &self.path
     }
-    pub fn read<'a>(&'a self) -> Result<String, std::io::Error> {
-        read_file(&self.path)
+    fn read<'a>(&'a self) -> Result<String, std::io::Error> {
+        std::fs::read_to_string(&self.path)
     }
-    pub fn write<'a>(&'a self, content: String) -> Result<(), std::io::Error> {
-        write_file(&self.path, content)
+    fn write<'a>(&'a self, content: String) -> Result<(), std::io::Error> {
+        std::fs::write(&self.path, content)
     }
 }
 
@@ -59,15 +51,17 @@ mod mocks {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    use assert_fs::{fixture::TempDir, prelude::*};
     use rstest::*;
 
-    fn assert_result<T: std::fmt::Debug + PartialEq, E1: std::fmt::Debug, E2>(
+    fn assert_result<T: std::fmt::Debug + PartialEq, E1: std::fmt::Debug, E2: std::fmt::Debug>(
         expected: Result<T, E1>,
         actual: Result<T, E2>,
     ) {
         if let Ok(actual) = actual {
             assert_eq!(expected.expect("BAD TEST"), actual);
         } else {
+            println!("{:?}", actual);
             assert!(expected.is_err())
         }
     }
@@ -88,17 +82,33 @@ mod unit_tests {
 
     #[rstest]
     #[case::should_call_read_file("hello", Ok("hello".to_string()))]
-    #[case::should_propagate_error(mocks::ERRONEOUS_PATH, Err(()))]
+    #[case::should_propagate_error("oh dear", Err(()))]
     fn read(#[case] path: &str, #[case] expected: Result<String, ()>) {
-        let handle = FileHandle::from(path.to_string());
+        let temp_dir = TempDir::new().unwrap();
+        let child = temp_dir.child(path);
+        let path = child.path().to_str().unwrap().to_string();
+        match expected.clone() {
+            Ok(expected) => {
+                child.write_str(expected.as_str()).expect("Bad Test");
+            }
+            _ => {}
+        }
+        let handle = FileHandle::from(path);
         assert_result(expected, handle.read());
+        temp_dir.close().unwrap();
     }
 
     #[rstest]
-    #[case::should_call_read_file("hello", "world", Ok(()))]
-    #[case::should_propagate_error(mocks::ERRONEOUS_PATH, "", Err(()))]
+    #[case::should_call_write_file("hello", "world", Ok(()))]
+    #[case::should_propagate_error("hello///", "", Err(()))]
     fn write(#[case] path: &str, #[case] content: &str, #[case] expected: Result<(), ()>) {
-        let handle = FileHandle::from(path.to_string());
+        let temp_dir = TempDir::new().unwrap();
+        let child = temp_dir.child(path);
+        let path = child.path().to_str().unwrap().to_string();
+        let handle = FileHandle::from(path.clone());
         assert_result(expected, handle.write(content.to_string()));
+        if let Ok(_) = expected {
+            assert_eq!(content, std::fs::read_to_string(path).expect("Bad Test"));
+        }
     }
 }

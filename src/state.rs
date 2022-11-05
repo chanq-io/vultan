@@ -2,7 +2,7 @@ pub mod card;
 pub mod deck;
 pub mod file;
 pub mod hand;
-mod tools;
+pub mod tools;
 
 use card::{parser::ParsingConfig, Card};
 use deck::Deck;
@@ -10,12 +10,7 @@ use hand::Hand;
 use serde::{Deserialize, Serialize};
 use snafu::{prelude::*, Whatever};
 use std::collections::HashMap;
-use tools::{Merge, UID};
-
-#[cfg_attr(test, double)]
-use file::FileHandle;
-#[cfg(test)]
-use mockall_double::double;
+use tools::{Merge, IO, UID};
 
 #[cfg(test)]
 use mocks::to_string_pretty as serialise;
@@ -24,9 +19,9 @@ use ron::ser::to_string_pretty as serialise;
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct State {
-    card_parsing_config: ParsingConfig,
-    cards: HashMap<String, Card>,
-    decks: HashMap<String, Deck>,
+    pub card_parsing_config: ParsingConfig,
+    pub cards: HashMap<String, Card>,
+    pub decks: HashMap<String, Deck>,
 }
 
 impl State {
@@ -38,7 +33,7 @@ impl State {
         }
     }
 
-    pub fn read(file_handle: FileHandle) -> Result<Self, Whatever> {
+    pub fn read(file_handle: impl IO) -> Result<Self, Whatever> {
         let file_path = file_handle.path();
         let content = file_handle
             .read()
@@ -47,7 +42,7 @@ impl State {
             .with_whatever_context(|_| format!("Unable to parse State from {}", file_path))
     }
 
-    pub fn write(&self, file_handle: FileHandle) -> Result<(), Whatever> {
+    pub fn write(&self, file_handle: impl IO) -> Result<(), Whatever> {
         let file_path = file_handle.path();
         let content = serialise(&self, ron::ser::PrettyConfig::default())
             .with_whatever_context(|_| format!("Unable to serialise State to {}", file_path))?;
@@ -151,7 +146,7 @@ pub mod mocks {
 }
 
 #[cfg(test)]
-mod assertions {
+pub mod assertions {
 
     use super::tools::test_tools::{assertions::assert_uid_map_contains, Expect};
     use super::*;
@@ -174,7 +169,7 @@ mod unit_tests {
     use super::card::revision_settings::RevisionSettings;
     use super::deck::interval_coefficients::IntervalCoefficients;
     use super::hand::assertions::assert_hand_contains;
-    use super::tools::test_tools::Expect;
+    use super::tools::test_tools::{Expect, MockIO};
     use super::*;
     use chrono::{DateTime, Duration, Utc};
 
@@ -452,7 +447,7 @@ mod unit_tests {
             expected_deck_name,
             expected_deck_name,
         );
-        let mut mock_file_handle = FileHandle::new();
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle
             .expect_read()
             .returning(move || Ok(state_str.clone()));
@@ -472,7 +467,7 @@ mod unit_tests {
     #[test]
     fn read_when_file_handle_read_fails() {
         let state_str = "oh dear";
-        let mut mock_file_handle = FileHandle::new();
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle
             .expect_read()
             .returning(move || Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
@@ -489,14 +484,16 @@ mod unit_tests {
 
     #[test]
     fn read_when_ron_fails() {
-        let state_str = "G.a|R,B$4:g'3".to_string();
-        let state_path = state_str.clone();
-        let state_content = state_str.clone();
-        let mut mock_file_handle = FileHandle::new();
+        let state_str = "G.a|R,B$4:g'3";
+        let state_path = state_str;
+        let state_content = state_str.to_string();
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle
             .expect_read()
             .returning(move || Ok(state_content.clone()));
-        mock_file_handle.expect_path().return_const(state_path);
+        mock_file_handle
+            .expect_path()
+            .return_const(state_path.to_string());
         let actual = State::read(mock_file_handle);
         assert!(actual.is_err());
         assert!(actual
@@ -516,7 +513,7 @@ mod unit_tests {
         let state = State::new(card_parsing_config, vec![card], vec![deck]);
         let expected =
             ron::ser::to_string_pretty(&state, ron::ser::PrettyConfig::default()).unwrap();
-        let mut mock_file_handle = FileHandle::new();
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle.expect_read().never();
         mock_file_handle.expect_path().return_const("".to_string());
         mock_file_handle
@@ -537,7 +534,7 @@ mod unit_tests {
         let deck = fake_deck_with_name(deck_name);
         let card_parsing_config = ParsingConfig::default();
         let state = State::new(card_parsing_config, vec![card], vec![deck]);
-        let mut mock_file_handle = FileHandle::new();
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle.expect_read().never();
         mock_file_handle
             .expect_write()
@@ -559,7 +556,7 @@ mod unit_tests {
         let mut card_parsing_config = ParsingConfig::default();
         card_parsing_config.deck_delimiter = mocks::ERROR_ID.to_string();
         let state = State::new(card_parsing_config, vec![], vec![]);
-        let mut mock_file_handle = FileHandle::new();
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle.expect_read().never();
         mock_file_handle.expect_write().never();
         mock_file_handle
