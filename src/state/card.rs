@@ -118,37 +118,31 @@ fn make_glob_pattern(notes_dir: std::path::PathBuf) -> anyhow::Result<String> {
 fn try_load_many(
     notes_dir: std::path::PathBuf,
     parser: &impl Parse,
-) -> anyhow::Result<LoadedCards, String> {
-    Err("".to_string())
-
-    //let notes_dir_path = notes_dir
-    //    .join("**/*.md")
-    //    .to_str()
-    //    .ok_or("TODO")
-    //    .with_context(|_| "TODO".to_string());
-    //let markdown_glob = glob(notes_dir_path)?.with_context(|| format!("TODO"))?;
-    //Ok(
-    //    markdown_glob.fold(LoadedCards::default(), |mut loaded_cards, maybe_file| {
-    //        match maybe_file {
-    //            Ok(path) => {
-    //                let file_handle = FileHandle::from(path);
-    //                match Card::from(file_handle, parser) {
-    //                    Ok(card) => {
-    //                        loaded_cards.succeeded.push(card);
-    //                    }
-    //                    Err(err_message) => {
-    //                        loaded_cards.failed.push(err_message.to_string());
-    //                    }
-    //                }
-    //            }
-    //            Err(err_message) => {
-    //                loaded_cards.failed.push(err_message.to_string());
-    //            }
-    //        }
-    //        loaded_cards
-    //    }),
-    //)
-    //    */
+) -> anyhow::Result<LoadedCards> {
+    let notes_dir_path =
+        make_glob_pattern(notes_dir).context("Unable to construct markdown glob path")?;
+    let markdown_glob = glob(&notes_dir_path).context("Unable to construct markdown glob")?;
+    Ok(
+        markdown_glob.fold(LoadedCards::default(), |mut loaded_cards, maybe_file| {
+            match maybe_file {
+                Ok(path) => {
+                    let file_handle = FileHandle::from(path);
+                    match Card::from(file_handle, parser) {
+                        Ok(card) => {
+                            loaded_cards.succeeded.push(card);
+                        }
+                        Err(err_message) => {
+                            loaded_cards.failed.push(err_message.to_string());
+                        }
+                    }
+                }
+                Err(err_message) => {
+                    loaded_cards.failed.push(err_message.to_string());
+                }
+            }
+            loaded_cards
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -156,12 +150,12 @@ pub mod assertions {
     use super::*;
     use revision_settings::assertions::assert_revision_settings_near;
 
-    pub fn assert_cards_near(a: &Card, b: &Card) {
-        assert_eq!(a.path, b.path);
-        assert_eq!(a.decks, b.decks);
-        assert_eq!(a.question, b.question);
-        assert_eq!(a.answer, b.answer);
-        assert_revision_settings_near(&a.revision_settings, &b.revision_settings, 2);
+    pub fn assert_cards_near(expected: &Card, actual: &Card) {
+        assert!(actual.path.contains(&expected.path));
+        assert_eq!(expected.decks, actual.decks);
+        assert_eq!(expected.question, actual.question);
+        assert_eq!(expected.answer, actual.answer);
+        assert_revision_settings_near(&expected.revision_settings, &actual.revision_settings, 2);
     }
 }
 
@@ -330,8 +324,8 @@ mod unit_tests {
             ],
         );
         let revision_settings = RevisionSettings::default();
-        let parsed_fields_a = make_fake_parsed_fields(decks_a, question_a, question_b);
-        let parsed_fields_b = make_fake_parsed_fields(decks_b, question_b, question_b);
+        let parsed_fields_a = make_fake_parsed_fields(decks_a, question_a, answer_a);
+        let parsed_fields_b = make_fake_parsed_fields(decks_b, question_b, answer_b);
         let expected_succeeded = vec![
             make_expected_card(path_a, &parsed_fields_a, revision_settings.clone()),
             make_expected_card(path_b, &parsed_fields_b, revision_settings),
