@@ -1,11 +1,11 @@
 #![allow(dead_code)] // TODO remove
 #![allow(unused_variables)] // TODO remove
 pub mod state;
-/*
 use glob::glob;
 use state::{card::parser::Parser, State};
 use state::{file::FileHandle, tools::IO};
 
+/*
 const STATE_FILE_NAME: &str = ".vultan.ron";
 
 fn load_state(file_handle: impl IO) -> State {
@@ -20,32 +20,6 @@ fn load_state(file_handle: impl IO) -> State {
 
 fn file_handle_from(path: String) -> FileHandle {
     FileHandle::from(path)
-}
-
-#[cfg(test)]
-mod mocks {
-    use super::*;
-    use state::tools::test_tools::MockIO;
-    pub fn mock_filesystem_reader(path: String) -> MockIO {
-        let mut handle = MockIO::new();
-        let path = path.to_string();
-        handle.expect_path().return_const(path.clone());
-        handle
-            .expect_read()
-            .returning(move || std::fs::read_to_string(path.clone()));
-        handle
-    }
-
-    pub fn mock_filesystem_writer(path: String) -> MockIO {
-        let mut handle = MockIO::new();
-        handle.expect_path().return_const(path.to_string());
-        let path = path.to_string();
-        handle.expect_write().returning(move |content: String| {
-            std::fs::write(path.clone(), content.as_str())
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, ""))
-        });
-        handle
-    }
 }
 
 #[cfg(test)]
@@ -68,16 +42,19 @@ mod unit_tests {
         let temp = assert_fs::TempDir::new().unwrap();
         let temp_path = temp.path().to_str().expect("Bad Test");
         let state_file_path = format!("{}/{}", temp_path, STATE_FILE_NAME);
-        let state_file_handle = mocks::mock_filesystem_writer(state_file_path);
-        assert!(fake_state.write(state_file_handle).is_ok());
+        let state_file_handle = state::tools::test_tools::mock_filesystem_writer(state_file_path);
+        assert!(
+            fake_state.write(state_file_handle).is_ok(),
+            "Setup test filesystem failed!"
+        );
         for (path, markdown) in fake_card_paths_and_markdown {
             temp.child(path)
                 .write_str(markdown.as_str())
-                .expect("Bad Test");
+                .expect("Setup test filesystem failed!");
         }
         temp.child("not_card.md")
             .write_str("#Some\nmarkdown")
-            .expect("Bad test");
+            .expect("Setup test filesystem failed!");
         temp
     }
 
@@ -143,7 +120,9 @@ mod unit_tests {
         ];
         let notes_dir = temp_dir.path().to_str().unwrap();
         let fake_state_path = format!("{}/{}", notes_dir, STATE_FILE_NAME);
-        let actual = load_state(mocks::mock_filesystem_reader(fake_state_path));
+        let actual = load_state(state::tools::test_tools::mock_filesystem_reader(
+            fake_state_path,
+        ));
         assertions::assert_state_eq(
             &actual,
             &expected_parsing_config,

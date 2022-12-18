@@ -17,6 +17,9 @@ pub trait IO {
 #[cfg(test)]
 pub mod test_tools {
 
+    use super::*;
+    use std::collections::HashMap;
+
     mock! {
         // Structure to mock
         pub IO {}
@@ -28,8 +31,26 @@ pub mod test_tools {
         }
     }
 
-    use super::*;
-    use std::collections::HashMap;
+    pub fn mock_filesystem_reader(path: String) -> MockIO {
+        let mut handle = MockIO::new();
+        let path = path.to_string();
+        handle.expect_path().return_const(path.clone());
+        handle
+            .expect_read()
+            .returning(move || std::fs::read_to_string(path.clone()));
+        handle
+    }
+
+    pub fn mock_filesystem_writer(path: String) -> MockIO {
+        let mut handle = MockIO::new();
+        handle.expect_path().return_const(path.to_string());
+        let path = path.to_string();
+        handle.expect_write().returning(move |content: String| {
+            std::fs::write(path.clone(), content.as_str())
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, ""))
+        });
+        handle
+    }
 
     #[derive(Debug)]
     pub enum Expect<T> {

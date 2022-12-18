@@ -4,11 +4,12 @@ pub mod file;
 pub mod hand;
 pub mod tools;
 
+use anyhow::{Context, Result};
 use card::{parser::ParsingConfig, Card};
+use custom_error::custom_error;
 use deck::Deck;
 use hand::Hand;
 use serde::{Deserialize, Serialize};
-use snafu::{prelude::*, Whatever};
 use std::collections::HashMap;
 use tools::{Merge, IO, UID};
 
@@ -16,6 +17,10 @@ use tools::{Merge, IO, UID};
 use mocks::to_string_pretty as serialise;
 #[cfg(not(test))]
 use ron::ser::to_string_pretty as serialise;
+
+custom_error! { StateError
+    MissingDeck { name: String } = "No deck named '{name}' exists",
+}
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct State {
@@ -33,22 +38,21 @@ impl State {
         }
     }
 
-    pub fn read(file_handle: impl IO) -> Result<Self, Whatever> {
+    pub fn read(file_handle: impl IO) -> Result<Self> {
         let file_path = file_handle.path();
         let content = file_handle
             .read()
-            .with_whatever_context(|_| format!("Unable to read State from {}", file_path))?;
-        ron::from_str(&content)
-            .with_whatever_context(|_| format!("Unable to parse State from {}", file_path))
+            .with_context(|| format!("Unable to read State from {}", file_path))?;
+        ron::from_str(&content).with_context(|| format!("Unable to parse State from {}", file_path))
     }
 
-    pub fn write(&self, file_handle: impl IO) -> Result<(), Whatever> {
+    pub fn write(&self, file_handle: impl IO) -> Result<()> {
         let file_path = file_handle.path();
         let content = serialise(&self, ron::ser::PrettyConfig::default())
-            .with_whatever_context(|_| format!("Unable to serialise State to {}", file_path))?;
+            .with_context(|| format!("Unable to serialise State to {}", file_path))?;
         file_handle
             .write(content)
-            .with_whatever_context(|_| format!("Unable to write State to {}", file_path))
+            .with_context(|| format!("Unable to write State to {}", file_path))
     }
 
     pub fn with_overriden_cards(self, cards: Vec<Card>) -> Self {
@@ -72,11 +76,10 @@ impl State {
         }
     }
 
-    pub fn deal(&self, deck_name: &str) -> Result<Hand, String> {
-        let deck = self
-            .decks
-            .get(deck_name)
-            .ok_or(format!("No deck named '{}' exists.", deck_name))?;
+    pub fn deal(&self, deck_name: &str) -> Result<Hand> {
+        let deck = self.decks.get(deck_name).ok_or(StateError::MissingDeck {
+            name: deck_name.to_owned(),
+        })?;
         Hand::from(deck, self.cards.values().collect())
     }
 
@@ -132,15 +135,16 @@ pub mod mocks {
 
     pub const ERROR_ID: &'static str = "ERROR";
 
-    pub fn to_string_pretty(
-        state: &State,
-        config: ron::ser::PrettyConfig,
-    ) -> Result<String, String> {
+    pub fn to_string_pretty(state: &State, config: ron::ser::PrettyConfig) -> Result<String> {
+        custom_error! { FakeRonError
+            Booboo {msg: String} = "Oops an error {msg}",
+        }
         if state.card_parsing_config.deck_delimiter == ERROR_ID {
-            Err(ERROR_ID.to_string())
+            Err(FakeRonError::Booboo {
+                msg: ERROR_ID.to_string(),
+            })?
         } else {
-            ron::ser::to_string_pretty(state, ron::ser::PrettyConfig::default())
-                .map_err(|e| e.to_string())
+            ron::ser::to_string_pretty(state, ron::ser::PrettyConfig::default()).context("whatever")
         }
     }
 }
@@ -381,7 +385,7 @@ mod unit_tests {
         let deck_name = "Does not exist";
         let actual = state.deal(deck_name);
         assert!(actual.is_err());
-        assert!(actual.unwrap_err().contains(deck_name));
+        assert!(format!("{:#?}", actual.unwrap_err()).contains(deck_name));
     }
 
     #[test]

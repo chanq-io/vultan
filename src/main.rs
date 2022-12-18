@@ -17,7 +17,7 @@ use vultan::state::file::FileHandle;
 fn main() -> Result<(), Box<dyn Error>> {
     let config = ParsingConfig::default();
     let parser = Parser::from(&config)?;
-    let file_handle = FileHandle::from("./test_card.md".to_string());
+    let file_handle = FileHandle::from(std::path::PathBuf::from("./test_card.md"));
     println!("{:?}", Card::from(file_handle, &parser));
     Ok(())
 }

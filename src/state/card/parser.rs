@@ -1,5 +1,15 @@
+use anyhow::{Context, Result};
+use custom_error::custom_error;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+
+custom_error! {
+    #[derive(Clone)]
+    pub ParsingError
+    DeckParsingError{input: String} = "Malformed decks field in input = `{input}`",
+    QuestionParsingError{input: String} = "Malformed question field in input = `{input}`",
+    AnswerParsingError{input: String} = "Malformed answer field in input = `{input}`"
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ParsingConfig {
@@ -39,7 +49,7 @@ pub enum ParsingPattern {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ParsedCardFields<'a> {
     pub decks: Vec<&'a str>,
     pub question: &'a str,
@@ -47,7 +57,7 @@ pub struct ParsedCardFields<'a> {
 }
 
 pub trait Parse {
-    fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String>;
+    fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>>;
 }
 
 #[derive(Debug)]
@@ -59,19 +69,36 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn from(user_config: &ParsingConfig) -> Result<Self, String> {
+    pub fn from(user_config: &ParsingConfig) -> Result<Self> {
         let partial_error = format!("Couldn't make Parser for {:?}", &user_config);
         Ok(Self {
             deck_delimiter: user_config.deck_delimiter.clone(),
-            decks_expression: Self::make_regex(&user_config.decks_pattern, &partial_error)?,
-            question_expression: Self::make_regex(&user_config.question_pattern, &partial_error)?,
-            answer_expression: Self::make_regex(&user_config.answer_pattern, &partial_error)?,
+            decks_expression: Regex::new(&Self::make_regex_expression(&user_config.decks_pattern))
+                .with_context(|| {
+                    format!(
+                        "Unable to construct parser. Supplied decks_pattern is malformed: {:?}",
+                        user_config.decks_pattern
+                    )
+                })?,
+            question_expression: Regex::new(&Self::make_regex_expression(
+                &user_config.question_pattern,
+            ))
+            .with_context(|| {
+                format!(
+                    "Unable to construct parser. Supplied question_pattern is malformed: {:?}",
+                    user_config.decks_pattern
+                )
+            })?,
+            answer_expression: Regex::new(&Self::make_regex_expression(
+                &user_config.answer_pattern,
+            ))
+            .with_context(|| {
+                format!(
+                    "Unable to construct parser. Supplied answer_pattern is malformed: {:?}",
+                    user_config.decks_pattern
+                )
+            })?,
         })
-    }
-
-    fn make_regex(pattern: &ParsingPattern, error_formatter: &str) -> Result<Regex, String> {
-        let error_formatter = |e| format!("{} -> {}", error_formatter, e);
-        Regex::new(&Self::make_regex_expression(&pattern)).map_err(error_formatter)
     }
 
     fn make_regex_expression(pattern: &ParsingPattern) -> String {
@@ -113,14 +140,26 @@ impl Parser {
 }
 
 impl Parse for Parser {
-    fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>, String> {
-        let maybe_decks = self.parse_decks(input);
-        let maybe_question = self.parse_string(&self.question_expression, input);
-        let maybe_answer = self.parse_string(&self.answer_expression, input);
+    fn parse<'a>(&self, input: &'a str) -> Result<ParsedCardFields<'a>> {
         Ok(ParsedCardFields {
-            decks: self.error_if_none(maybe_decks, "DECKS", &self.decks_expression)?,
-            question: self.error_if_none(maybe_question, "QUESTION", &self.question_expression)?,
-            answer: self.error_if_none(maybe_answer, "ANSWER", &self.answer_expression)?,
+            decks: self
+                .parse_decks(input)
+                .ok_or(ParsingError::DeckParsingError {
+                    input: input.to_owned(),
+                })
+                .context("Could not match DECKS against pattern")?,
+            question: self
+                .parse_string(&self.question_expression, input)
+                .ok_or(ParsingError::DeckParsingError {
+                    input: input.to_owned(),
+                })
+                .context("Could not match QUESTION against pattern")?,
+            answer: self
+                .parse_string(&self.answer_expression, input)
+                .ok_or(ParsingError::DeckParsingError {
+                    input: input.to_owned(),
+                })
+                .context("Could not match ANSWER against pattern")?,
         })
     }
 }
@@ -132,7 +171,7 @@ use mockall::*;
 mock! {
     pub Parser{}
     impl Parse for Parser {
-        fn parse(&self, input: &str) -> Result<ParsedCardFields<'static>, String>;
+        fn parse(&self, input: &str) -> Result<ParsedCardFields<'static>>;
     }
 }
 
@@ -258,9 +297,8 @@ mod unit_tests {
                 }
                 Err(expected_message) => {
                     assert!(actual.is_err());
-                    assert!(actual
-                        .unwrap_err()
-                        .contains("Couldn't make Parser for ParsingConfig"));
+                    assert!(format!("{:#?}", actual.unwrap_err())
+                        .contains("Unable to construct parser"));
                 }
             }
         }
@@ -306,7 +344,7 @@ mod unit_tests {
                     assert_eq!(expected_answer, actual.answer);
                 }
                 Err(expected_message) => {
-                    assert!(actual.unwrap_err().contains(expected_message));
+                    assert!(format!("{:#?}", actual.unwrap_err()).contains(expected_message));
                 }
             }
         }
