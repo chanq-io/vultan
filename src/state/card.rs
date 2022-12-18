@@ -99,12 +99,6 @@ impl Merge<Card> for Card {
     }
 }
 
-#[derive(Default)]
-pub struct LoadedCards {
-    succeeded: Vec<Card>,
-    failed: Vec<String>,
-}
-
 fn make_glob_pattern(notes_dir: std::path::PathBuf) -> anyhow::Result<String> {
     Ok(notes_dir
         .join("**/*.md")
@@ -115,27 +109,29 @@ fn make_glob_pattern(notes_dir: std::path::PathBuf) -> anyhow::Result<String> {
         .to_owned())
 }
 
+#[derive(Default)]
+pub struct LoadedCards {
+    succeeded: Vec<Card>,
+    failed: Vec<String>,
+}
+
 fn try_load_many(
     notes_dir: std::path::PathBuf,
     parser: &impl Parse,
 ) -> anyhow::Result<LoadedCards> {
-    let notes_dir_path =
-        make_glob_pattern(notes_dir).context("Unable to construct markdown glob path")?;
-    let markdown_glob = glob(&notes_dir_path).context("Unable to construct markdown glob")?;
+    let glob_path = make_glob_pattern(notes_dir).context("Unable to construct glob path")?;
+    let markdown_glob = glob(&glob_path).context("Unable to construct glob")?;
     Ok(
         markdown_glob.fold(LoadedCards::default(), |mut loaded_cards, maybe_file| {
             match maybe_file {
-                Ok(path) => {
-                    let file_handle = FileHandle::from(path);
-                    match Card::from(file_handle, parser) {
-                        Ok(card) => {
-                            loaded_cards.succeeded.push(card);
-                        }
-                        Err(err_message) => {
-                            loaded_cards.failed.push(err_message.to_string());
-                        }
+                Ok(path) => match Card::from(FileHandle::from(path), parser) {
+                    Ok(card) => {
+                        loaded_cards.succeeded.push(card);
                     }
-                }
+                    Err(err_message) => {
+                        loaded_cards.failed.push(err_message.to_string());
+                    }
+                },
                 Err(err_message) => {
                     loaded_cards.failed.push(err_message.to_string());
                 }

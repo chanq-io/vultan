@@ -73,43 +73,30 @@ impl Parser {
         let partial_error = format!("Couldn't make Parser for {:?}", &user_config);
         Ok(Self {
             deck_delimiter: user_config.deck_delimiter.clone(),
-            decks_expression: Regex::new(&Self::make_regex_expression(&user_config.decks_pattern))
-                .with_context(|| {
-                    format!(
-                        "Unable to construct parser. Supplied decks_pattern is malformed: {:?}",
-                        user_config.decks_pattern
-                    )
-                })?,
-            question_expression: Regex::new(&Self::make_regex_expression(
+            decks_expression: Self::make_regex_expression(&user_config.decks_pattern, "decks")?,
+            question_expression: Self::make_regex_expression(
                 &user_config.question_pattern,
-            ))
-            .with_context(|| {
-                format!(
-                    "Unable to construct parser. Supplied question_pattern is malformed: {:?}",
-                    user_config.decks_pattern
-                )
-            })?,
-            answer_expression: Regex::new(&Self::make_regex_expression(
-                &user_config.answer_pattern,
-            ))
-            .with_context(|| {
-                format!(
-                    "Unable to construct parser. Supplied answer_pattern is malformed: {:?}",
-                    user_config.decks_pattern
-                )
-            })?,
+                "question",
+            )?,
+            answer_expression: Self::make_regex_expression(&user_config.answer_pattern, "answer")?,
         })
     }
 
-    fn make_regex_expression(pattern: &ParsingPattern) -> String {
+    fn make_regex_expression(pattern: &ParsingPattern, pattern_id: &str) -> Result<Regex> {
         use ParsingPattern::*;
-        match pattern {
+        let expr = match pattern {
             TaggedLine { tag } => format!(r"{}(.*)", tag),
             WrappedMultiLine {
                 opening_tag,
                 closing_tag,
             } => format!(r"{}((?s).*){}", opening_tag, closing_tag),
-        }
+        };
+        Regex::new(&expr).with_context(|| {
+            format!(
+                "Unable to construct parser. Supplied {} pattern is malformed: {:?}",
+                pattern_id, pattern
+            )
+        })
     }
 
     fn parse_string<'a>(&self, expression: &Regex, input: &'a str) -> Option<&'a str> {
