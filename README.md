@@ -1,2 +1,2 @@
 # Vultan
-An Anki-like, spaced repetition studying tool.
+Work in Progress: An Anki-like, spaced repetition studying tool.
