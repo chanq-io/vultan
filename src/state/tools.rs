@@ -8,6 +8,10 @@ pub trait Merge<T> {
     fn merge(self, other: &T) -> Self;
 }
 
+pub trait Near<T> {
+    fn is_near(&self, other: &T) -> bool;
+}
+
 pub trait IO {
     fn path(&self) -> &str;
     fn read(&self) -> Result<String, std::io::Error>;
@@ -21,15 +25,14 @@ pub mod test_tools {
     use std::collections::HashMap;
 
     mock! {
-        // Structure to mock
-        pub IO {}
-        // First trait to implement on C
-        impl IO for IO {
-            fn path(&self) -> &str;
-            fn read(&self) -> Result<String, std::io::Error>;
-            fn write(&self, content: String) -> Result<(), std::io::Error>;
-        }
-    }
+    // Structure to mock
+    pub IO {}
+    // First trait to implement on C
+    impl IO for IO {
+        fn path(&self) -> &str;
+        fn read(&self) -> Result<String, std::io::Error>;
+        fn write(&self, content: String) -> Result<(), std::io::Error>;
+    } }
 
     pub fn mock_filesystem_reader(path: String) -> MockIO {
         let mut handle = MockIO::new();
@@ -52,9 +55,14 @@ pub mod test_tools {
         handle
     }
 
+    pub fn ignore<T: Default>() -> T {
+        Default::default()
+    }
+
     #[derive(Debug)]
     pub enum Expect<T> {
         DoesContain(T),
+        DoesContainNear(T),
         DoesNotContain(T),
         Truthy,
         Falsy,
@@ -75,6 +83,13 @@ pub mod test_tools {
         map.contains_key(item.uid()) && *item == map[item.uid()]
     }
 
+    fn uid_map_contains_near<'a, T>(map: &HashMap<String, T>, item: &'a T) -> bool
+    where
+        T: PartialEq + UID + Near<T>,
+    {
+        map.contains_key(item.uid()) && item.is_near(&map[item.uid()])
+    }
+
     pub mod assertions {
 
         use super::*;
@@ -90,6 +105,8 @@ pub mod test_tools {
                 .filter(|c| {
                     std::mem::discriminant(*c)
                         == std::mem::discriminant(&Expect::DoesContain(T::default()))
+                        || std::mem::discriminant(*c)
+                            == std::mem::discriminant(&Expect::DoesContainNear(T::default()))
                 })
                 .count();
             assert!(container.len() == expected_length);
@@ -97,12 +114,13 @@ pub mod test_tools {
 
         pub fn assert_uid_map_contains<'a, T>(map: &HashMap<String, T>, expected: &'a [Expect<T>])
         where
-            T: Default + std::fmt::Debug + PartialEq + UID,
+            T: Default + std::fmt::Debug + PartialEq + UID + Near<T>,
         {
             assert_length_matches(map, expected);
             for comparator in expected.iter() {
                 match comparator {
                     Expect::DoesContain(item) => assert!(uid_map_contains(map, item)),
+                    Expect::DoesContainNear(item) => assert!(uid_map_contains_near(map, item)),
                     Expect::DoesNotContain(item) => assert!(!uid_map_contains(map, item)),
                     _ => panic!("BAD TEST"),
                 }

@@ -37,7 +37,6 @@ mod unit_tests {
         if let Ok(actual) = actual {
             assert_eq!(expected.expect("BAD TEST"), actual);
         } else {
-            println!("{:?}", actual);
             assert!(expected.is_err())
         }
     }

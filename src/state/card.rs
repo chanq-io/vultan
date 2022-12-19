@@ -5,7 +5,7 @@ pub mod score;
 use super::deck::IntervalCoefficients;
 use super::file::FileHandle;
 use super::tools::IO;
-use super::tools::{Merge, UID};
+use super::tools::{Merge, Near, UID};
 use anyhow;
 use anyhow::Context;
 use chrono::Utc;
@@ -16,9 +16,7 @@ pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed pub
 pub use score::Score;
 use serde::{Deserialize, Serialize};
 
-custom_error! {
-    #[derive(Clone)]
-    CardError
+custom_error! { CardError
     GlobError { path: String } = "Unable to construct glob for path = `{path}`",
 }
 
@@ -99,6 +97,15 @@ impl Merge<Card> for Card {
     }
 }
 
+impl Near<Card> for Card {
+    fn is_near(&self, other: &Card) -> bool {
+        self.path == other.path
+            && self.decks == other.decks
+            && self.question == other.question
+            && self.answer == other.answer
+    }
+}
+
 fn make_glob_pattern(notes_dir: std::path::PathBuf) -> anyhow::Result<String> {
     Ok(notes_dir
         .join("**/*.md")
@@ -109,13 +116,13 @@ fn make_glob_pattern(notes_dir: std::path::PathBuf) -> anyhow::Result<String> {
         .to_owned())
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct LoadedCards {
-    succeeded: Vec<Card>,
-    failed: Vec<String>,
+    pub succeeded: Vec<Card>,
+    pub failed: Vec<String>,
 }
 
-fn try_load_many(
+pub fn try_load_many(
     notes_dir: std::path::PathBuf,
     parser: &impl Parse,
 ) -> anyhow::Result<LoadedCards> {
@@ -156,6 +163,39 @@ pub mod assertions {
 }
 
 #[cfg(test)]
+pub mod fake {
+    use super::*;
+    pub fn card(
+        path: &str,
+        decks: Vec<&str>,
+        question: &str,
+        answer: &str,
+        revision_settings: RevisionSettings,
+    ) -> Card {
+        Card::new(
+            path.to_string(),
+            decks.iter().map(|s| s.to_string()).collect(),
+            question.to_string(),
+            answer.to_string(),
+            revision_settings,
+        )
+    }
+
+    pub fn markdown_card_with_default_format(
+        decks: &[&str],
+        question: &str,
+        answer: &str,
+    ) -> String {
+        format!(
+            "---\ntitle:something\ntags: :{}:\n---\n# Question\n{}\n# Answer\n{}\n----\n",
+            decks.join(":"),
+            question,
+            answer,
+        )
+    }
+}
+
+#[cfg(test)]
 mod unit_tests {
 
     use super::revision_settings::test_tools::make_expected_revision_settings;
@@ -171,21 +211,6 @@ mod unit_tests {
 
     const FAKE_PATH: &str = "a_path";
 
-    fn make_fake_card(
-        path: &str,
-        decks: Vec<&str>,
-        question: &str,
-        answer: &str,
-        revision_settings: RevisionSettings,
-    ) -> Card {
-        Card::new(
-            path.to_string(),
-            decks.iter().map(|s| s.to_string()).collect(),
-            question.to_string(),
-            answer.to_string(),
-            revision_settings,
-        )
-    }
     fn make_fake_parsed_fields(
         decks: Vec<&'static str>,
         question: &'static str,
@@ -211,7 +236,7 @@ mod unit_tests {
         parsed_fields: &ParsedCardFields,
         revision_settings: RevisionSettings,
     ) -> Card {
-        make_fake_card(
+        fake::card(
             path,
             parsed_fields.decks.to_owned(),
             parsed_fields.question,
@@ -306,12 +331,12 @@ mod unit_tests {
             .path()
             .to_str()
             .expect("Setup test filesystem failed!");
-        let (path_a, path_b) = ("a.md", "b.md");
+        let (path_a, path_b, path_c, path_d) = ("a.md", "b.md", "c.md", "d.md");
         let (decks_a, decks_b) = (vec!["a", "b"], vec!["b", "c"]);
         let (question_a, question_b) = ("what?", "who?");
         let (answer_a, answer_b) = ("this", "that");
-        let non_markdown_paths = vec![path_a, path_b];
-        write_non_card_markdown_files(&temp_dir, non_markdown_paths.clone());
+        let malformed_paths = vec![path_c, path_d];
+        write_non_card_markdown_files(&temp_dir, malformed_paths.clone());
         write_fake_card_markdown_files(
             &temp_dir,
             vec![
@@ -328,15 +353,17 @@ mod unit_tests {
         ];
         let parsing_config = parser::ParsingConfig::default();
         let parser = parser::Parser::from(&parsing_config).unwrap();
-        let mut loaded_cards = try_load_many(fake_notes_dir_path.into(), &parser).unwrap();
+        let mut loaded_cards = dbg!(try_load_many(fake_notes_dir_path.into(), &parser).unwrap());
         loaded_cards.failed.sort();
         loaded_cards.succeeded.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(expected_succeeded.len(), loaded_cards.succeeded.len());
         expected_succeeded
             .iter()
             .zip(loaded_cards.succeeded)
             .for_each(|(expected, actual)| assertions::assert_cards_near(&expected, &actual));
 
-        non_markdown_paths
+        assert_eq!(malformed_paths.len(), loaded_cards.failed.len());
+        malformed_paths
             .iter()
             .zip(loaded_cards.failed)
             .for_each(|(expected, actual)| assert_ne!(expected.to_string(), actual));

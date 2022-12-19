@@ -1,7 +1,9 @@
 use std::error::Error;
+use vultan::state::card;
 use vultan::state::card::parser::{Parser, ParsingConfig};
-use vultan::state::card::Card;
+use vultan::state::deck;
 use vultan::state::file::FileHandle;
+use vultan::state::State;
 /*
  * let state = State::read(&args.notes_dir);
  *    -> let state = Self::read_or_default(notes_dir)
@@ -15,9 +17,15 @@ use vultan::state::file::FileHandle;
  * State::write(&args.notes_dir);
  * */
 fn main() -> Result<(), Box<dyn Error>> {
-    let config = ParsingConfig::default();
-    let parser = Parser::from(&config)?;
-    let file_handle = FileHandle::from(std::path::PathBuf::from("./test_card.md"));
-    println!("{:?}", Card::from(file_handle, &parser));
+    let fake_notes_dir = std::path::PathBuf::from(r"./tests/res/");
+    let state_handle = FileHandle::from(std::path::PathBuf::from(r"./tests/res/.vultan.ron"));
+    let state = State::from_file(state_handle).unwrap_or(State::default());
+    let parser = Parser::from(&state.card_parsing_config)?;
+    let cards = card::try_load_many(fake_notes_dir, &parser)?;
+    let decks = deck::many_from_cards(&cards.succeeded);
+    let state = state
+        .with_merged_cards(cards.succeeded)
+        .with_merged_decks(decks);
+    println!("{:#?}", &state);
     Ok(())
 }
