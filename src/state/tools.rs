@@ -1,3 +1,5 @@
+#[cfg(test)]
+use mockall::mock;
 pub trait UID {
     fn uid(&self) -> &str;
 }
@@ -6,11 +8,49 @@ pub trait Merge<T> {
     fn merge(self, other: &T) -> Self;
 }
 
+pub trait IO {
+    fn path(&self) -> &str;
+    fn read(&self) -> Result<String, std::io::Error>;
+    fn write(&self, content: String) -> Result<(), std::io::Error>;
+}
+
 #[cfg(test)]
 pub mod test_tools {
 
     use super::*;
     use std::collections::HashMap;
+
+    mock! {
+        // Structure to mock
+        pub IO {}
+        // First trait to implement on C
+        impl IO for IO {
+            fn path(&self) -> &str;
+            fn read(&self) -> Result<String, std::io::Error>;
+            fn write(&self, content: String) -> Result<(), std::io::Error>;
+        }
+    }
+
+    pub fn mock_filesystem_reader(path: String) -> MockIO {
+        let mut handle = MockIO::new();
+        let path = path.to_string();
+        handle.expect_path().return_const(path.clone());
+        handle
+            .expect_read()
+            .returning(move || std::fs::read_to_string(path.clone()));
+        handle
+    }
+
+    pub fn mock_filesystem_writer(path: String) -> MockIO {
+        let mut handle = MockIO::new();
+        handle.expect_path().return_const(path.to_string());
+        let path = path.to_string();
+        handle.expect_write().returning(move |content: String| {
+            std::fs::write(path.clone(), content.as_str())
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::NotFound, ""))
+        });
+        handle
+    }
 
     #[derive(Debug)]
     pub enum Expect<T> {

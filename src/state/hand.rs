@@ -2,7 +2,13 @@ mod shuffle;
 
 use super::card::{Card, Score};
 use super::deck::{Deck, IntervalCoefficients};
+use anyhow::{Context, Result};
+use custom_error::custom_error;
 use std::collections::VecDeque;
+
+custom_error! { HandError
+    EmptyDeck { name: String } = "Deck '{name}' contains no cards",
+}
 
 #[derive(Debug)]
 pub struct Hand<'h> {
@@ -11,10 +17,12 @@ pub struct Hand<'h> {
 }
 
 impl<'h> Hand<'h> {
-    pub fn from(deck: &'h Deck, cards: Vec<&'h Card>) -> Result<Hand<'h>, String> {
+    pub fn from(deck: &'h Deck, cards: Vec<&'h Card>) -> Result<Hand<'h>> {
         let hand_cards = shuffle::shuffle_cards(Hand::filter_due_cards_in_deck(deck, cards));
         match hand_cards.len() {
-            0 => Err(format!("Deck({}) contains no cards", deck.name)),
+            0 => Err(HandError::EmptyDeck {
+                name: deck.name.to_owned(),
+            })?,
             _ => Ok(Self {
                 queue: hand_cards.into_iter().collect(),
                 interval_coefficients: &deck.interval_coefficients,
@@ -160,7 +168,7 @@ mod unit_tests {
                 assertions::assert_hands_near(&expected, &actual);
             }
             Err(err) => {
-                assert!(err.contains(FAKE_DECK_ID));
+                assert!(format!("{:#?}", err).contains(FAKE_DECK_ID));
             }
         }
     }
