@@ -2,12 +2,19 @@ mod shuffle;
 
 use super::card::{Card, Score};
 use super::deck::{Deck, IntervalCoefficients};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use custom_error::custom_error;
 use std::collections::VecDeque;
 
-custom_error! { HandError
+use std::fs::File;
+use std::io::prelude::*;
+
+custom_error! {
+    #[derive(PartialEq)]
+    pub HandError
     EmptyDeck { name: String } = "Deck '{name}' contains no cards",
+    NoDueCards { name: String } = "No due cards in Deck '{name}'",
+    ReceivedExitApplicationSignal = ""
 }
 
 #[derive(Debug)]
@@ -17,14 +24,18 @@ pub struct Hand<'h> {
 }
 
 impl<'h> Hand<'h> {
-    pub fn from(deck: &'h Deck, cards: Vec<&'h Card>) -> Result<Hand<'h>> {
-        let hand_cards = shuffle::shuffle_cards(Hand::filter_due_cards_in_deck(deck, cards));
-        match hand_cards.len() {
-            0 => Err(HandError::EmptyDeck {
-                name: deck.name.to_owned(),
-            })?,
+    pub fn from(deck: &'h Deck, cards: Vec<&'h Card>) -> Result<Hand<'h>, HandError> {
+        let deck_cards = Hand::filter_cards_in_deck(deck, cards);
+        let n_cards_in_deck = deck_cards.len();
+        let due_cards = Hand::filter_due_cards(deck_cards);
+        let n_due_cards = due_cards.len();
+        let hand_cards = shuffle::shuffle_cards(due_cards);
+        let name = deck.name.to_owned();
+        match (n_cards_in_deck, n_due_cards) {
+            (0, _) => Err(HandError::EmptyDeck { name })?,
+            (_, 0) => Err(HandError::NoDueCards { name })?,
             _ => Ok(Self {
-                queue: hand_cards.into_iter().collect(),
+                queue: hand_cards.into_iter().map(Clone::clone).collect(),
                 interval_coefficients: &deck.interval_coefficients,
             }),
         }
@@ -33,29 +44,48 @@ impl<'h> Hand<'h> {
     pub fn revise_until_none_fail<ReadScoreCallback>(
         mut self,
         mut read_score: ReadScoreCallback,
-    ) -> Vec<Card>
+    ) -> Result<Vec<Card>>
     where
-        ReadScoreCallback: FnMut(&Card) -> Score,
+        ReadScoreCallback: FnMut(&Card, usize) -> Result<Score>,
     {
         use Score::*;
         let mut output = Vec::new();
         while self.queue.len() > 0 {
+            let n_remaining = self.queue.len();
             let card = self.queue.pop_front().unwrap();
             let transform = |card: Card, score| card.transform(score, self.interval_coefficients);
-            match read_score(&card) {
-                Fail => self.queue.push_back(transform(card, Fail)),
-                any_other_score => output.push(transform(card, any_other_score)),
+            match read_score(&card, n_remaining) {
+                Ok(Fail) => self.queue.push_back(transform(card, Fail)),
+                Ok(any_other_score) => output.push(transform(card, any_other_score)),
+                Err(e) => {
+                    if matches!(
+                        e.downcast_ref::<HandError>(),
+                        Some(HandError::ReceivedExitApplicationSignal)
+                    ) {
+                        // TODO TEST
+                        output.push(card);
+                        output.extend(self.queue.iter().cloned());
+                        return Ok(output);
+                    }
+                }
             }
         }
-        output
+        Ok(output)
     }
 
-    fn filter_due_cards_in_deck(deck: &'h Deck, cards: Vec<&'h Card>) -> Vec<Card> {
+    pub fn number_of_due_cards(&self) -> usize {
+        self.queue.len()
+    }
+
+    fn filter_cards_in_deck(deck: &'h Deck, cards: Vec<&'h Card>) -> Vec<&'h Card> {
         cards
             .into_iter()
-            .filter(|c| c.is_due() && c.in_deck(&deck.name))
-            .map(|c| c.clone())
+            .filter(|c| c.in_deck(&deck.name))
             .collect()
+    }
+
+    fn filter_due_cards(cards: Vec<&'h Card>) -> Vec<&'h Card> {
+        cards.into_iter().filter(|c| c.is_due()).collect()
     }
 }
 
@@ -97,9 +127,10 @@ mod unit_tests {
     use crate::state::card::revision_settings::test_tools::make_expected_revision_settings;
     use crate::state::{card::RevisionSettings, deck::IntervalCoefficients};
     use chrono::{Duration, Utc};
+    use itertools::*;
     use rstest::*;
 
-    const FAKE_DECK_ID: &str = "cephelapoda";
+    const FAKE_DECK_NAME: &str = "cephelapoda";
 
     fn make_card(path: &str, deck: &str) -> Card {
         Card::new(
@@ -108,6 +139,16 @@ mod unit_tests {
             format!("{:?}?", path),
             format!("yes, {:?}", path),
             RevisionSettings::default(),
+        )
+    }
+
+    fn make_future_card(path: &str, deck: &str) -> Card {
+        Card::new(
+            path.to_string(),
+            vec![deck.to_string()],
+            format!("{:?}?", path),
+            format!("yes, {:?}", path),
+            RevisionSettings::new(Utc::now() + chrono::Duration::days(10), 0.0, 1300.0),
         )
     }
 
@@ -134,13 +175,13 @@ mod unit_tests {
     }
 
     fn fake_future_card(path: &str) -> Card {
-        let mut card = make_card(path, FAKE_DECK_ID);
+        let mut card = make_card(path, FAKE_DECK_NAME);
         card.revision_settings.due = Utc::now() + Duration::days(4);
         card
     }
 
     fn fake_cards(paths: Vec<&str>) -> Vec<Card> {
-        make_cards(FAKE_DECK_ID, &paths)
+        make_cards(FAKE_DECK_NAME, &paths)
     }
 
     #[rstest]
@@ -156,19 +197,20 @@ mod unit_tests {
         concat_cards(fake_cards(vec!["octopus", "squid", "cuttlefish", "nautilus"]), vec![make_card("clam", "bivalvia")]),
         Ok(vec!["squid", "cuttlefish", "nautilus", "octopus"])
     )]
-    #[case::returns_error_if_no_cards_exist_for_deck(vec![make_card("clam", "bivalvia")], Err(FAKE_DECK_ID))]
-    fn from(#[case] cards: Vec<Card>, #[case] expected: Result<Vec<&str>, &str>) {
+    #[case::returns_empty_deck_error_if_no_cards_exist_for_deck(vec![make_card("clam", "bivalvia")], Err(HandError::EmptyDeck{name: FAKE_DECK_NAME.to_owned()}))]
+    #[case::returns_no_due_cards_error_if_no_cards_due_in_deck(vec![make_future_card("squid", FAKE_DECK_NAME)], Err(HandError::NoDueCards{name: FAKE_DECK_NAME.to_owned()}))]
+    fn from(#[case] cards: Vec<Card>, #[case] expected: Result<Vec<&str>, HandError>) {
         let card_paths: Vec<&str> = cards.iter().map(|c| c.path.as_str()).collect();
-        let deck = make_deck(FAKE_DECK_ID, &card_paths);
+        let deck = make_deck(FAKE_DECK_NAME, &card_paths);
         let hand = Hand::from(&deck, cards.iter().collect());
         match hand {
             Ok(hand) => {
-                let expected = make_cards(FAKE_DECK_ID, &expected.expect("BAD TEST"));
+                let expected = make_cards(FAKE_DECK_NAME, &expected.expect("BAD TEST. Expected"));
                 let actual: Vec<Card> = hand.queue.into_iter().collect();
                 assertions::assert_hands_near(&expected, &actual);
             }
             Err(err) => {
-                assert!(format!("{:#?}", err).contains(FAKE_DECK_ID));
+                assert_eq!(expected.unwrap_err(), err);
             }
         }
     }
@@ -180,9 +222,8 @@ mod unit_tests {
             queue: VecDeque::new(),
             interval_coefficients: &&interval_coefficients,
         };
-        let expected: Vec<Card> = Vec::new();
-        let actual = hand.revise_until_none_fail(|card| Score::Easy);
-        assert_eq!(expected, actual);
+        let actual = hand.revise_until_none_fail(|card, n_remaining| Ok(Score::Easy));
+        assert!(actual.expect("Expected empty vec").len() == 0);
     }
 
     #[test]
@@ -211,14 +252,38 @@ mod unit_tests {
             })
             .collect();
 
-        let actual = hand.revise_until_none_fail(|card| match &card.path[..] {
-            "hard" => Score::Hard,
-            "pass" => Score::Pass,
-            "easy" => Score::Easy,
-            _ => panic!("IMPOSSIBLE"),
-        });
+        let mut expected_remaining = cards.len();
+        let actual = hand
+            .revise_until_none_fail(|card, n_remaining| {
+                assert_eq!(expected_remaining, n_remaining);
+                expected_remaining -= 1;
+                match &card.path[..] {
+                    "hard" => Ok(Score::Hard),
+                    "pass" => Ok(Score::Pass),
+                    "easy" => Ok(Score::Easy),
+                    _ => panic!("IMPOSSIBLE"),
+                }
+            })
+            .expect("Expected vec of cards");
 
         assertions::assert_hands_near(&expected, &actual);
+    }
+
+    #[test]
+    fn number_of_due_cards() {
+        let deck_id = "some_deck";
+        let due_card_date = Utc::now() - Duration::days(4);
+        let due_card_rs = RevisionSettings::new(due_card_date, 1.0, 2000.0);
+        let not_due_card_date = Utc::now() + Duration::days(4);
+        let not_due_card_rs = RevisionSettings::new(not_due_card_date, 1.0, 2000.0);
+        let (path_1, path_2) = ("path_1", "path_2");
+        let due_card = make_card_with_revision_settings(path_1, deck_id, &due_card_rs);
+        let not_due_card = make_card_with_revision_settings(path_2, deck_id, &not_due_card_rs);
+        let cards = vec![&due_card, &not_due_card];
+        let interval_coefficients = IntervalCoefficients::new(1.0, 2.0, 0.0);
+        let deck = Deck::new(deck_id, vec![path_1, path_2], interval_coefficients);
+        let hand = Hand::from(&deck, cards).unwrap();
+        assert_eq!(1, hand.number_of_due_cards());
     }
 
     #[test]
@@ -236,18 +301,20 @@ mod unit_tests {
         let expected = vec![make_card_with_revision_settings(path, deck_id, &out_rs)];
 
         let mut total_number_of_cycles = 0;
-        let actual = hand.revise_until_none_fail(|card| match &card.path[..] {
-            "fail" => {
-                let number_of_cycles_so_far = total_number_of_cycles;
-                if number_of_cycles_so_far < 5 {
-                    total_number_of_cycles += 1;
-                    Score::Fail
-                } else {
-                    Score::Pass
+        let actual = hand
+            .revise_until_none_fail(|card, n_remaining| match &card.path[..] {
+                "fail" => {
+                    let number_of_cycles_so_far = total_number_of_cycles;
+                    if number_of_cycles_so_far < 5 {
+                        total_number_of_cycles += 1;
+                        Ok(Score::Fail)
+                    } else {
+                        Ok(Score::Pass)
+                    }
                 }
-            }
-            _ => panic!("IMPOSSIBLE"),
-        });
+                _ => panic!("IMPOSSIBLE"),
+            })
+            .expect("Expected vec of cards");
 
         assert_eq!(total_number_of_cycles, 5);
         assertions::assert_hands_near(&expected, &actual);

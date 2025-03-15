@@ -10,9 +10,9 @@ use card::{
     Card,
 };
 use custom_error::custom_error;
+use deck::Deck;
 use file::FileHandle;
 use hand::Hand;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tools::{Merge, IO, UID};
@@ -22,10 +22,12 @@ use mocks::to_string_pretty as serialise;
 #[cfg(not(test))]
 use ron::ser::to_string_pretty as serialise;
 
-const STATE_FILENAME: &'static str = ".vultan.ron";
+pub const STATE_FILENAME: &'static str = ".vultan.ron";
 
-custom_error! { StateError
+custom_error! { pub StateError
     MissingDeck { name: String } = "No deck named '{name}' exists",
+    EmptyDeck { name: String } = "Deck '{name}' contains no cards",
+    NoDueCards { name: String } = "No due cards in Deck '{name}'",
 }
 
 #[derive(Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -59,14 +61,6 @@ impl State {
             .with_merged_decks(decks))
     }
 
-    pub fn from_file(file_handle: impl IO) -> Result<Self> {
-        let file_path = file_handle.path();
-        let content = file_handle
-            .read()
-            .with_context(|| format!("Unable to read State from {}", file_path))?;
-        ron::from_str(&content).with_context(|| format!("Unable to parse State from {}", file_path))
-    }
-
     pub fn write(&self, file_handle: impl IO) -> Result<()> {
         let file_path = file_handle.path();
         let content = serialise(&self, ron::ser::PrettyConfig::default())
@@ -97,23 +91,37 @@ impl State {
         }
     }
 
-    pub fn deal(&self, deck_name: &str) -> Result<Hand> {
-        let deck = self.decks.get(deck_name).ok_or(StateError::MissingDeck {
-            name: deck_name.to_owned(),
-        })?;
-        Hand::from(deck, self.cards.values().collect())
+    pub fn deal(&self, deck_name: &str) -> Result<Hand, StateError> {
+        let deck = self.get_deck(deck_name)?;
+        Hand::from(deck, self.cards.values().collect()).map_err(|e| match e {
+            hand::HandError::EmptyDeck { name } => StateError::EmptyDeck { name },
+            hand::HandError::NoDueCards { name } => StateError::NoDueCards { name },
+            _ => unreachable!(),
+        })
     }
 
-    // TODO make private
-    pub fn with_merged_cards(self, cards: Vec<Card>) -> Self {
+    pub fn get_deck(&self, deck_name: &str) -> Result<&Deck, StateError> {
+        Ok(self.decks.get(deck_name).ok_or(StateError::MissingDeck {
+            name: deck_name.to_owned(),
+        })?)
+    }
+
+    fn from_file(file_handle: impl IO) -> Result<Self> {
+        let file_path = file_handle.path();
+        let content = file_handle
+            .read()
+            .with_context(|| format!("Unable to read State from {}", file_path))?;
+        ron::from_str(&content).with_context(|| format!("Unable to parse State from {}", file_path))
+    }
+
+    fn with_merged_cards(self, cards: Vec<Card>) -> Self {
         Self {
             cards: Self::merge_matching_values(self.cards, cards),
             ..self
         }
     }
 
-    // TODO make private
-    pub fn with_merged_decks(self, decks: Vec<deck::Deck>) -> Self {
+    fn with_merged_decks(self, decks: Vec<deck::Deck>) -> Self {
         Self {
             decks: Self::merge_matching_values(self.decks, decks),
             ..self
@@ -201,6 +209,7 @@ mod unit_tests {
     use super::*;
     use assert_fs::prelude::*;
     use chrono::{DateTime, Duration, Utc};
+    use itertools::Itertools;
 
     fn fake_parsing_config_with_delimiter(delimiter: &str) -> ParsingConfig {
         let mut card_parsing_config = ParsingConfig::default();
@@ -421,6 +430,50 @@ mod unit_tests {
     }
 
     #[test]
+    fn get_deck_when_deck_does_not_exist() {
+        let state = State::default();
+        let deck_name = "Does not exist";
+        let actual = state.get_deck(deck_name);
+        assert!(actual.is_err());
+        assert!(format!("{:#?}", actual.unwrap_err()).contains(deck_name));
+    }
+
+    #[test]
+    fn get_deck() {
+        let (deck_name_a, deck_name_b) = ("a", "b");
+        let card_parsing_config = ParsingConfig::default();
+        let past = Utc::now() - Duration::days(10);
+        let future = Utc::now() + Duration::days(10);
+        let deck_a_due_card =
+            fake_card_with_path_decks_and_due_date("a/some", vec![deck_name_a], past);
+        let deck_a_other_card =
+            fake_card_with_path_decks_and_due_date("a/other", vec![deck_name_a], future);
+        let deck_b_due_card =
+            fake_card_with_path_decks_and_due_date("b/some", vec![deck_name_b], past);
+        let deck_b_other_card =
+            fake_card_with_path_decks_and_due_date("b/other", vec![deck_name_b], future);
+        let (deck_a, deck_b) = (
+            fake_deck_with_name(deck_name_a),
+            fake_deck_with_name(deck_name_b),
+        );
+        let state = State {
+            card_parsing_config: card_parsing_config.clone(),
+            cards: HashMap::from([
+                (deck_a_due_card.path.clone(), deck_a_due_card.clone()),
+                (deck_a_other_card.path.clone(), deck_a_other_card.clone()),
+                (deck_b_due_card.path.clone(), deck_b_due_card.clone()),
+                (deck_b_other_card.path.clone(), deck_b_other_card.clone()),
+            ]),
+            decks: HashMap::from([
+                (deck_a.name.clone(), deck_a.clone()),
+                (deck_b.name.clone(), deck_b.clone()),
+            ]),
+        };
+        let actual = state.get_deck(deck_name_b).unwrap();
+        assert_eq!(&deck_b, actual);
+    }
+
+    #[test]
     fn deal() {
         let (deck_name_a, deck_name_b) = ("a", "b");
         let card_parsing_config = ParsingConfig::default();
@@ -473,9 +526,9 @@ mod unit_tests {
         let (path_a, path_b) = ("a_path.md", "b_path.md");
         let (deck_name_a, deck_name_b) = ("a", "b");
         let mut card_a = fake_card_with_path_and_decks(path_a, vec![deck_name_a]);
-        let (question_a, question_b) = (card_a.question, card_b.question);
-        let (answer_a, answer_b) = (card_a.answer, card_b.answer);
         let mut card_b = fake_card_with_path_and_decks(path_b, vec![deck_name_b]);
+        let (question_a, question_b) = (card_a.question.clone(), card_b.question.clone());
+        let (answer_a, answer_b) = (card_a.answer.clone(), card_b.answer.clone());
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let fake_notes_dirpath = temp_dir.path().to_path_buf();
         let state_str = ron::to_string(&State::default()).expect("Serialize State failed");

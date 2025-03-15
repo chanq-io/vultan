@@ -4,8 +4,15 @@ date: 2022-12-18 19:07
 tags: :topic-1:
 ---
 # Question
-What is the answer to question A?
+What is the `answer` to **question** A?
 # Answer
-A is something I want to learn
+## Hello
+A is *something* I want to **learn**
+
+```
+let z = 13;
+let y = z;
+let x = y;
+```
 ----
 Backlink:
