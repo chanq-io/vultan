@@ -1,0 +1,23 @@
+use anyhow::{Context, Result};
+use clap::Parser;
+
+mod repl;
+use vultan::state;
+
+#[derive(Parser, Debug)]
+#[command(name = "study-cli")]
+#[command(about = "Study flashcards from a deck", long_about = None)]
+struct Args {
+    /// Path to the notes directory
+    #[arg(short, long, default_value = "./tests/res")]
+    notes_dirpath: String,
+
+    /// Name of the deck to study
+    #[arg(short, long, default_value = "topic-1")]
+    deck_name: String,
+}
+
+fn main() -> Result<()> {
+    let args = Args::parse();
+    study(&args.notes_dirpath, &args.deck_name)
+}

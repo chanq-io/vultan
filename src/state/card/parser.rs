@@ -70,7 +70,6 @@ pub struct Parser {
 
 impl Parser {
     pub fn from(user_config: &ParsingConfig) -> Result<Self> {
-        let partial_error = format!("Couldn't make Parser for {:?}", &user_config);
         Ok(Self {
             deck_delimiter: user_config.deck_delimiter.clone(),
             decks_expression: Self::make_regex_expression(&user_config.decks_pattern, "decks")?,
@@ -110,19 +109,6 @@ impl Parser {
                 .filter(|tag| !tag.is_empty())
                 .collect(),
         )
-    }
-
-    fn error_if_none<T>(
-        &self,
-        parsed_field: Option<T>,
-        field_id: &str,
-        expression: &Regex,
-    ) -> Result<T, String> {
-        parsed_field.ok_or(format!(
-            "Could not match {} against pattern(\"{}\")",
-            field_id,
-            expression.as_str()
-        ))
     }
 }
 
@@ -282,7 +268,7 @@ mod unit_tests {
                     assert_eq!(expected_question, actual.question_expression.as_str());
                     assert_eq!(expected_answer, actual.answer_expression.as_str());
                 }
-                Err(expected_message) => {
+                Err(_) => {
                     assert!(actual.is_err());
                     assert!(format!("{:#?}", actual.unwrap_err())
                         .contains("Unable to construct parser"));
@@ -322,7 +308,7 @@ mod unit_tests {
             #[case] expected: Result<(Vec<&str>, &str, &str), &str>,
         ) {
             let parser = Parser::from(&user_config).unwrap();
-            let actual = parser.parse(&input);
+            let actual = parser.parse(input);
             match expected {
                 Ok((expected_decks, expected_question, expected_answer)) => {
                     let actual = actual.unwrap();

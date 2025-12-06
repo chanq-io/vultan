@@ -252,7 +252,7 @@ mod unit_tests {
         let mut mock_parser = MockParser::new();
         mock_parser
             .expect_parse()
-            .with(eq(expected_filepath_arg.clone()))
+            .with(eq(expected_filepath_arg))
             .return_once(move |_| expected_return_value);
         mock_parser
     }
@@ -347,7 +347,7 @@ mod unit_tests {
         let revision_settings = RevisionSettings::default();
         let parsed_fields_a = make_fake_parsed_fields(decks_a, question_a, answer_a);
         let parsed_fields_b = make_fake_parsed_fields(decks_b, question_b, answer_b);
-        let expected_succeeded = vec![
+        let expected_succeeded = [
             make_expected_card(path_a, &parsed_fields_a, revision_settings.clone()),
             make_expected_card(path_b, &parsed_fields_b, revision_settings),
         ];
@@ -360,7 +360,7 @@ mod unit_tests {
         expected_succeeded
             .iter()
             .zip(loaded_cards.succeeded)
-            .for_each(|(expected, actual)| assertions::assert_cards_near(&expected, &actual));
+            .for_each(|(expected, actual)| assertions::assert_cards_near(expected, &actual));
 
         assert_eq!(malformed_paths.len(), loaded_cards.failed.len());
         malformed_paths
@@ -469,8 +469,10 @@ mod unit_tests {
         #[case] due_date: chrono::DateTime<Utc>,
         #[case] expectation: Expect<i32>,
     ) {
-        let mut revision_settings = RevisionSettings::default();
-        revision_settings.due = due_date;
+        let revision_settings = RevisionSettings {
+            due: due_date,
+            ..Default::default()
+        };
         let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
         let card = make_expected_card("some-identifier", &fields, revision_settings);
         assert_truthy(expectation, card.is_due());

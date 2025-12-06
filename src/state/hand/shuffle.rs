@@ -36,7 +36,7 @@ mod unit_tests {
 
     #[test]
     fn shuffling_cards() {
-        let card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
+        let card_paths = ["octopus", "squid", "cuttlefish", "nautilus"];
         let deck_id = "cephelapoda";
         let cards: Vec<Card> = card_paths.iter().map(|p| make_fake_card(p)).collect();
         let expected_paths = vec!["squid", "cuttlefish", "nautilus", "octopus"];

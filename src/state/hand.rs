@@ -6,9 +6,6 @@ use anyhow::Result;
 use custom_error::custom_error;
 use std::collections::VecDeque;
 
-use std::fs::File;
-use std::io::prelude::*;
-
 custom_error! {
     #[derive(PartialEq)]
     pub HandError
@@ -35,7 +32,7 @@ impl<'h> Hand<'h> {
             (0, _) => Err(HandError::EmptyDeck { name })?,
             (_, 0) => Err(HandError::NoDueCards { name })?,
             _ => Ok(Self {
-                queue: hand_cards.into_iter().map(Clone::clone).collect(),
+                queue: hand_cards.into_iter().cloned().collect(),
                 interval_coefficients: &deck.interval_coefficients,
             }),
         }
@@ -50,7 +47,7 @@ impl<'h> Hand<'h> {
     {
         use Score::*;
         let mut output = Vec::new();
-        while self.queue.len() > 0 {
+        while !self.queue.is_empty() {
             let n_remaining = self.queue.len();
             let card = self.queue.pop_front().unwrap();
             let transform = |card: Card, score| card.transform(score, self.interval_coefficients);
@@ -109,11 +106,11 @@ pub mod assertions {
         expected_queued_items: &[Expect<Card>],
     ) {
         assert_eq!(hand.interval_coefficients, expected_coefficients);
-        assert_length_matches(&hand.queue, &expected_queued_items);
+        assert_length_matches(&hand.queue, expected_queued_items);
         for comparator in expected_queued_items.iter() {
             match comparator {
-                Expect::DoesContain(item) => assert!(hand.queue.contains(&item)),
-                Expect::DoesNotContain(item) => assert!(!hand.queue.contains(&item)),
+                Expect::DoesContain(item) => assert!(hand.queue.contains(item)),
+                Expect::DoesNotContain(item) => assert!(!hand.queue.contains(item)),
                 _ => panic!("BAD TEST"),
             }
         }
@@ -127,7 +124,6 @@ mod unit_tests {
     use crate::state::card::revision_settings::test_tools::make_expected_revision_settings;
     use crate::state::{card::RevisionSettings, deck::IntervalCoefficients};
     use chrono::{Duration, Utc};
-    use itertools::*;
     use rstest::*;
 
     const FAKE_DECK_NAME: &str = "cephelapoda";
@@ -171,7 +167,7 @@ mod unit_tests {
     }
 
     fn concat_cards(a: Vec<Card>, b: Vec<Card>) -> Vec<Card> {
-        vec![a, b].concat()
+        [a, b].concat()
     }
 
     fn fake_future_card(path: &str) -> Card {
@@ -220,10 +216,10 @@ mod unit_tests {
         let interval_coefficients = IntervalCoefficients::default();
         let hand = Hand {
             queue: VecDeque::new(),
-            interval_coefficients: &&interval_coefficients,
+            interval_coefficients: &interval_coefficients,
         };
         let actual = hand.revise_until_none_fail(|card, n_remaining| Ok(Score::Easy));
-        assert!(actual.expect("Expected empty vec").len() == 0);
+        assert!(actual.expect("Expected empty vec").is_empty());
     }
 
     #[test]

@@ -53,13 +53,13 @@ impl Near<Deck> for Deck {
 }
 
 pub fn many_from_cards(cards: &[Card]) -> Vec<Deck> {
-    let deck_name_to_paths = cards.into_iter().fold(
+    let deck_name_to_paths = cards.iter().fold(
         std::collections::HashMap::new(),
         |mut deck_name_to_paths, card| {
             card.decks.iter().for_each(|deck_name| {
                 deck_name_to_paths
                     .entry(deck_name)
-                    .or_insert_with(|| vec![])
+                    .or_insert_with(Vec::new)
                     .push(card.path.as_str())
             });
 
@@ -70,7 +70,7 @@ pub fn many_from_cards(cards: &[Card]) -> Vec<Deck> {
     deck_name_to_paths
         .into_iter()
         .map(|(deck_name, card_paths)| {
-            Deck::new(&deck_name, card_paths, IntervalCoefficients::default())
+            Deck::new(deck_name, card_paths, IntervalCoefficients::default())
         })
         .collect_vec()
 }
@@ -90,7 +90,7 @@ pub mod assertions {
     use super::*;
 
     pub fn assert_decks_eq(mut expected: Vec<Deck>, mut actual: Vec<Deck>) {
-        assert!(expected.len() > 0 && actual.len() > 0 && expected.len() == actual.len());
+        assert!(!expected.is_empty() && !actual.is_empty() && expected.len() == actual.len());
         let comparator = |a: &Deck, b: &Deck| a.name.cmp(&b.name);
         expected.sort_by(comparator);
         actual.sort_by(comparator);
@@ -112,10 +112,10 @@ mod unit_tests {
         let card_c = fake_card("3.md", vec!["c", "d"], ignore(), ignore(), ignore());
         let cards = vec![card_a, card_b, card_c];
         let expected = vec![
-            fake::deck("a", &vec!["1.md"]),
-            fake::deck("b", &vec!["1.md", "2.md"]),
-            fake::deck("c", &vec!["2.md", "3.md"]),
-            fake::deck("d", &vec!["3.md"]),
+            fake::deck("a", &["1.md"]),
+            fake::deck("b", &["1.md", "2.md"]),
+            fake::deck("c", &["2.md", "3.md"]),
+            fake::deck("d", &["3.md"]),
         ];
         let actual = many_from_cards(&cards);
         assertions::assert_decks_eq(expected, actual);

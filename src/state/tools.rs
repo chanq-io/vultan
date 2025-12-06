@@ -76,14 +76,14 @@ pub mod test_tools {
         })
     }
 
-    fn uid_map_contains<'a, T>(map: &HashMap<String, T>, item: &'a T) -> bool
+    fn uid_map_contains<T>(map: &HashMap<String, T>, item: &T) -> bool
     where
         T: PartialEq + UID,
     {
         map.contains_key(item.uid()) && *item == map[item.uid()]
     }
 
-    fn uid_map_contains_near<'a, T>(map: &HashMap<String, T>, item: &'a T) -> bool
+    fn uid_map_contains_near<T>(map: &HashMap<String, T>, item: &T) -> bool
     where
         T: PartialEq + UID + Near<T>,
     {
@@ -95,7 +95,7 @@ pub mod test_tools {
         use super::*;
         use len_trait::Len;
 
-        pub fn assert_length_matches<'a, C, T>(container: &C, expected: &[Expect<T>])
+        pub fn assert_length_matches<C, T>(container: &C, expected: &[Expect<T>])
         where
             C: ?Sized + Len,
             T: Default,
@@ -112,7 +112,7 @@ pub mod test_tools {
             assert!(container.len() == expected_length);
         }
 
-        pub fn assert_uid_map_contains<'a, T>(map: &HashMap<String, T>, expected: &'a [Expect<T>])
+        pub fn assert_uid_map_contains<T>(map: &HashMap<String, T>, expected: &[Expect<T>])
         where
             T: Default + std::fmt::Debug + PartialEq + UID + Near<T>,
         {

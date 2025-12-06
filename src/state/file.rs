@@ -14,12 +14,12 @@ impl FileHandle {
 
 impl IO for FileHandle {
     fn path(&self) -> &str {
-        &self.path.to_str().unwrap_or("unknown")
+        self.path.to_str().unwrap_or("unknown")
     }
-    fn read<'a>(&'a self) -> Result<String, std::io::Error> {
+    fn read(&self) -> Result<String, std::io::Error> {
         std::fs::read_to_string(&self.path)
     }
-    fn write<'a>(&'a self, content: String) -> Result<(), std::io::Error> {
+    fn write(&self, content: String) -> Result<(), std::io::Error> {
         std::fs::write(&self.path, content)
     }
 }
@@ -51,7 +51,7 @@ mod unit_tests {
     #[test]
     fn exposes_path_getter() {
         let path_str = "hello";
-        let path = std::path::PathBuf::from(path_str.clone());
+        let path = std::path::PathBuf::from(path_str);
         let handle = FileHandle::from(path);
         assert_eq!(path_str, handle.path());
     }
@@ -63,11 +63,8 @@ mod unit_tests {
         let temp_dir = TempDir::new().unwrap();
         let child = temp_dir.child(path);
         let path = child.path().to_path_buf();
-        match expected.clone() {
-            Ok(expected) => {
-                child.write_str(expected.as_str()).expect("Bad Test");
-            }
-            _ => {}
+        if let Ok(expected) = expected.clone() {
+            child.write_str(expected.as_str()).expect("Bad Test");
         }
         let handle = FileHandle::from(path);
         assert_result(expected, handle.read());
@@ -83,7 +80,7 @@ mod unit_tests {
         let path = child.path().to_path_buf();
         let handle = FileHandle::from(path.clone());
         assert_result(expected, handle.write(content.to_string()));
-        if let Ok(_) = expected {
+        if expected.is_ok() {
             assert_eq!(content, std::fs::read_to_string(path).expect("Bad Test"));
         }
     }

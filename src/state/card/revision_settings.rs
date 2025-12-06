@@ -29,7 +29,7 @@ impl RevisionSettings {
     }
 
     pub fn transform(self, score: Score, coefficients: &IntervalCoefficients) -> Self {
-        let new_interval = self.calculate_new_interval(&score, &coefficients);
+        let new_interval = self.calculate_new_interval(&score, coefficients);
         Self {
             due: self.calculate_new_due_date(new_interval),
             interval: new_interval,

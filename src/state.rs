@@ -22,7 +22,7 @@ use mocks::to_string_pretty as serialise;
 #[cfg(not(test))]
 use ron::ser::to_string_pretty as serialise;
 
-pub const STATE_FILENAME: &'static str = ".vultan.ron";
+pub const STATE_FILENAME: &str = ".vultan.ron";
 
 custom_error! { pub StateError
     MissingDeck { name: String } = "No deck named '{name}' exists",
@@ -45,14 +45,14 @@ impl State {
     ) -> Self {
         Self {
             card_parsing_config,
-            cards: HashMap::from_iter(Self::uid_value_pairs(cards).into_iter()),
-            decks: HashMap::from_iter(Self::uid_value_pairs(decks).into_iter()),
+            cards: HashMap::from_iter(Self::uid_value_pairs(cards)),
+            decks: HashMap::from_iter(Self::uid_value_pairs(decks)),
         }
     }
 
     pub fn read(notes_dirpath: std::path::PathBuf) -> Result<Self> {
         let file_handle = FileHandle::from(notes_dirpath.join(STATE_FILENAME));
-        let state = Self::from_file(file_handle).unwrap_or(State::default());
+        let state = Self::from_file(file_handle).unwrap_or_default();
         let parser = Parser::from(&state.card_parsing_config)?;
         let loaded_cards = card::try_load_many(notes_dirpath, &parser)?;
         let decks = deck::many_from_cards(&loaded_cards.succeeded);
@@ -63,7 +63,7 @@ impl State {
 
     pub fn write(&self, file_handle: impl IO) -> Result<()> {
         let file_path = file_handle.path();
-        let content = serialise(&self, ron::ser::PrettyConfig::default())
+        let content = serialise(self, ron::ser::PrettyConfig::default())
             .with_context(|| format!("Unable to serialise State to {}", file_path))?;
         file_handle
             .write(content)
@@ -91,7 +91,7 @@ impl State {
         }
     }
 
-    pub fn deal(&self, deck_name: &str) -> Result<Hand, StateError> {
+    pub fn deal(&self, deck_name: &str) -> Result<Hand<'_>, StateError> {
         let deck = self.get_deck(deck_name)?;
         Hand::from(deck, self.cards.values().collect()).map_err(|e| match e {
             hand::HandError::EmptyDeck { name } => StateError::EmptyDeck { name },
@@ -101,9 +101,9 @@ impl State {
     }
 
     pub fn get_deck(&self, deck_name: &str) -> Result<&Deck, StateError> {
-        Ok(self.decks.get(deck_name).ok_or(StateError::MissingDeck {
+        self.decks.get(deck_name).ok_or(StateError::MissingDeck {
             name: deck_name.to_owned(),
-        })?)
+        })
     }
 
     fn from_file(file_handle: impl IO) -> Result<Self> {
@@ -144,7 +144,7 @@ impl State {
         let overriding: Vec<T> = items
             .into_iter()
             .map(|i| match map.get(i.uid()) {
-                Some(item) => i.merge(&item),
+                Some(item) => i.merge(item),
                 None => i,
             })
             .collect();
@@ -164,7 +164,7 @@ pub mod mocks {
 
     use super::*;
 
-    pub const ERROR_ID: &'static str = "ERROR";
+    pub const ERROR_ID: &str = "ERROR";
 
     pub fn to_string_pretty(state: &State, config: ron::ser::PrettyConfig) -> Result<String> {
         custom_error! { FakeRonError
@@ -212,16 +212,18 @@ mod unit_tests {
     use itertools::Itertools;
 
     fn fake_parsing_config_with_delimiter(delimiter: &str) -> ParsingConfig {
-        let mut card_parsing_config = ParsingConfig::default();
-        card_parsing_config.deck_delimiter = delimiter.to_string();
-        card_parsing_config
+        ParsingConfig {
+            deck_delimiter: delimiter.to_string(),
+            ..Default::default()
+        }
     }
 
     fn fake_card_with_path_and_decks(path: &str, decks: Vec<&str>) -> Card {
-        let mut card = Card::default();
-        card.path = path.to_string();
-        card.decks = decks.into_iter().map(|d| d.to_string()).collect();
-        card
+        Card {
+            path: path.to_string(),
+            decks: decks.into_iter().map(|d| d.to_string()).collect(),
+            ..Default::default()
+        }
     }
 
     fn fake_card_with_path_decks_and_due_date(
@@ -235,16 +237,18 @@ mod unit_tests {
     }
 
     fn fake_deck_with_name(name: &str) -> deck::Deck {
-        let mut deck = deck::Deck::default();
-        deck.name = name.to_string();
-        deck
+        deck::Deck {
+            name: name.to_string(),
+            ..Default::default()
+        }
     }
 
     fn fake_deck_with_name_and_card_paths(name: &str, card_paths: &[&str]) -> deck::Deck {
-        let mut deck = deck::Deck::default();
-        deck.name = name.to_string();
-        deck.card_paths = card_paths.iter().map(ToString::to_string).collect_vec();
-        deck
+        deck::Deck {
+            name: name.to_string(),
+            card_paths: card_paths.iter().map(ToString::to_string).collect_vec(),
+            ..Default::default()
+        }
     }
 
     fn fake_state_with_single_card_and_deck() -> (ParsingConfig, Card, deck::Deck, State) {
@@ -409,8 +413,10 @@ mod unit_tests {
     #[test]
     fn with_card_parsing_config() {
         let (_, card, deck, state) = fake_state_with_single_card_and_deck();
-        let mut new_parsing_config = ParsingConfig::default();
-        new_parsing_config.deck_delimiter = "?".to_string();
+        let new_parsing_config = ParsingConfig {
+            deck_delimiter: "?".to_string(),
+            ..Default::default()
+        };
         let actual = state.with_card_parsing_config(new_parsing_config.clone());
         assertions::assert_state_eq(
             &actual,
@@ -532,8 +538,8 @@ mod unit_tests {
         let temp_dir = assert_fs::TempDir::new().unwrap();
         let fake_notes_dirpath = temp_dir.path().to_path_buf();
         let state_str = ron::to_string(&State::default()).expect("Serialize State failed");
-        let md_a = fake_markdown_card(&vec![deck_name_a], question_a.as_str(), answer_b.as_str());
-        let md_b = fake_markdown_card(&vec![deck_name_b], question_b.as_str(), answer_b.as_str());
+        let md_a = fake_markdown_card(&[deck_name_a], question_a.as_str(), answer_b.as_str());
+        let md_b = fake_markdown_card(&[deck_name_b], question_b.as_str(), answer_b.as_str());
         write_fake_file(&state_str, &temp_dir, STATE_FILENAME);
         write_fake_file(&md_a, &temp_dir, path_a);
         write_fake_file(&md_b, &temp_dir, path_b);
@@ -651,8 +657,7 @@ mod unit_tests {
             .expect_write()
             .with(mockall::predicate::eq(expected))
             .returning(move |_| Ok(()));
-        let actual = state.write(mock_file_handle).unwrap();
-        assert_eq!((), actual);
+        assert!(state.write(mock_file_handle).is_ok());
     }
 
     #[test]
@@ -684,8 +689,10 @@ mod unit_tests {
     #[test]
     fn write_when_ron_fails() {
         let state_path = "stateful";
-        let mut card_parsing_config = ParsingConfig::default();
-        card_parsing_config.deck_delimiter = mocks::ERROR_ID.to_string();
+        let card_parsing_config = ParsingConfig {
+            deck_delimiter: mocks::ERROR_ID.to_string(),
+            ..Default::default()
+        };
         let state = State::new(card_parsing_config, vec![], vec![]);
         let mut mock_file_handle = MockIO::new();
         mock_file_handle.expect_read().never();
