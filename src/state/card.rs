@@ -3,18 +3,22 @@ pub mod revision_settings; // Shouldn't need to be exposed publically
 pub mod score;
 
 use super::deck::IntervalCoefficients;
-use super::tools::{Merge, UID};
+use super::file::FileHandle;
+use super::tools::IO;
+use super::tools::{Merge, Near, UID};
+use anyhow;
+use anyhow::Context;
 use chrono::Utc;
+use custom_error::custom_error;
+use glob::glob;
 use parser::Parse;
 pub use revision_settings::RevisionSettings; // Shouldn't need to be exposed publically
 pub use score::Score;
-use snafu::{prelude::*, Whatever};
-
-#[cfg_attr(test, double)]
-use super::file::FileHandle;
-#[cfg(test)]
-use mockall_double::double;
 use serde::{Deserialize, Serialize};
+
+custom_error! { CardError
+    GlobError { path: String } = "Unable to construct glob for path = `{path}`",
+}
 
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
 pub struct Card {
@@ -42,14 +46,12 @@ impl Card {
         }
     }
 
-    pub fn from(file_handle: FileHandle, parser: &impl Parse) -> Result<Self, Whatever> {
+    pub fn from(file_handle: impl IO, parser: &impl Parse) -> anyhow::Result<Self> {
         let file_path = file_handle.path();
         let file_content = file_handle
             .read()
-            .with_whatever_context(|_| format!("Unable to read Card from \"{}\"", file_path))?;
-        let parsed_fields = parser
-            .parse(&file_content)
-            .with_whatever_context(|_| format!("Unable to parse Card from \"{}\"", file_path))?;
+            .with_context(|| format!("Unable to parse card at '{file_path}'"))?;
+        let parsed_fields = parser.parse(&file_content)?;
         Ok(Self {
             path: file_path.to_string(),
             decks: parsed_fields.decks.iter().map(|s| s.to_string()).collect(),
@@ -95,36 +97,75 @@ impl Merge<Card> for Card {
     }
 }
 
+impl Near<Card> for Card {
+    fn is_near(&self, other: &Card) -> bool {
+        self.path == other.path
+            && self.decks == other.decks
+            && self.question == other.question
+            && self.answer == other.answer
+    }
+}
+
+fn make_glob_pattern(notes_dir: std::path::PathBuf) -> anyhow::Result<String> {
+    Ok(notes_dir
+        .join("**/*.md")
+        .to_str()
+        .ok_or(CardError::GlobError {
+            path: String::from(notes_dir.to_string_lossy()),
+        })?
+        .to_owned())
+}
+
+#[derive(Default, Debug)]
+pub struct LoadedCards {
+    pub succeeded: Vec<Card>,
+    pub failed: Vec<String>,
+}
+
+pub fn try_load_many(
+    notes_dir: std::path::PathBuf,
+    parser: &impl Parse,
+) -> anyhow::Result<LoadedCards> {
+    let glob_path = make_glob_pattern(notes_dir).context("Unable to construct glob path")?;
+    let markdown_glob = glob(&glob_path).context("Unable to construct glob")?;
+    Ok(
+        markdown_glob.fold(LoadedCards::default(), |mut loaded_cards, maybe_file| {
+            match maybe_file {
+                Ok(path) => match Card::from(FileHandle::from(path), parser) {
+                    Ok(card) => {
+                        loaded_cards.succeeded.push(card);
+                    }
+                    Err(err_message) => {
+                        loaded_cards.failed.push(err_message.to_string());
+                    }
+                },
+                Err(err_message) => {
+                    loaded_cards.failed.push(err_message.to_string());
+                }
+            }
+            loaded_cards
+        }),
+    )
+}
+
 #[cfg(test)]
 pub mod assertions {
     use super::*;
     use revision_settings::assertions::assert_revision_settings_near;
 
-    pub fn assert_cards_near(a: &Card, b: &Card) {
-        assert_eq!(a.path, b.path);
-        assert_eq!(a.decks, b.decks);
-        assert_eq!(a.question, b.question);
-        assert_eq!(a.answer, b.answer);
-        assert_revision_settings_near(&a.revision_settings, &b.revision_settings, 2);
+    pub fn assert_cards_near(expected: &Card, actual: &Card) {
+        assert!(actual.path.contains(&expected.path));
+        assert_eq!(expected.decks, actual.decks);
+        assert_eq!(expected.question, actual.question);
+        assert_eq!(expected.answer, actual.answer);
+        assert_revision_settings_near(&expected.revision_settings, &actual.revision_settings, 2);
     }
 }
 
 #[cfg(test)]
-mod unit_tests {
-
-    use super::revision_settings::test_tools::make_expected_revision_settings;
+pub mod fake {
     use super::*;
-    use crate::state::file::MockFileHandle;
-    use crate::state::tools::test_tools::{assert_truthy, Expect};
-    use chrono::{Duration, Utc};
-    use mockall::predicate::eq;
-    use parser::MockParser;
-    use parser::ParsedCardFields;
-    use rstest::*;
-
-    const FAKE_PATH: &str = "a_path";
-
-    fn make_fake_card(
+    pub fn card(
         path: &str,
         decks: Vec<&str>,
         question: &str,
@@ -139,6 +180,37 @@ mod unit_tests {
             revision_settings,
         )
     }
+
+    pub fn markdown_card_with_default_format(
+        decks: &[&str],
+        question: &str,
+        answer: &str,
+    ) -> String {
+        format!(
+            "---\ntitle:something\ntags: :{}:\n---\n# Question\n{}\n# Answer\n{}\n----\n",
+            decks.join(":"),
+            question,
+            answer,
+        )
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+
+    use super::revision_settings::test_tools::make_expected_revision_settings;
+    use super::*;
+    use crate::state::tools::test_tools::{assert_truthy, Expect, MockIO};
+    use assert_fs::prelude::*;
+    use chrono::{Duration, Utc};
+    use mockall::predicate::eq;
+    use parser::MockParser;
+    use parser::ParsedCardFields;
+    use parser::ParsingError;
+    use rstest::*;
+
+    const FAKE_PATH: &str = "a_path";
+
     fn make_fake_parsed_fields(
         decks: Vec<&'static str>,
         question: &'static str,
@@ -164,7 +236,7 @@ mod unit_tests {
         parsed_fields: &ParsedCardFields,
         revision_settings: RevisionSettings,
     ) -> Card {
-        make_fake_card(
+        fake::card(
             path,
             parsed_fields.decks.to_owned(),
             parsed_fields.question,
@@ -175,19 +247,19 @@ mod unit_tests {
 
     fn make_mock_parser(
         expected_filepath_arg: &'static str,
-        expected_return_value: Result<ParsedCardFields<'static>, String>,
+        expected_return_value: anyhow::Result<ParsedCardFields<'static>>,
     ) -> MockParser {
         let mut mock_parser = MockParser::new();
         mock_parser
             .expect_parse()
-            .with(eq(expected_filepath_arg.clone()))
-            .return_const(expected_return_value);
+            .with(eq(expected_filepath_arg))
+            .return_once(move |_| expected_return_value);
         mock_parser
     }
 
     #[fixture]
-    fn successful_file_handle() -> MockFileHandle {
-        let mut mock_file_handle = MockFileHandle::new();
+    fn successful_file_handle() -> MockIO {
+        let mut mock_file_handle = MockIO::new();
         let content = FAKE_PATH.to_owned().to_string();
         mock_file_handle
             .expect_path()
@@ -199,8 +271,8 @@ mod unit_tests {
     }
 
     #[fixture]
-    fn failing_file_handle() -> FileHandle {
-        let mut mock_file_handle = MockFileHandle::new();
+    fn failing_file_handle() -> MockIO {
+        let mut mock_file_handle = MockIO::new();
         mock_file_handle
             .expect_read()
             .returning(move || Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
@@ -208,6 +280,93 @@ mod unit_tests {
             .expect_path()
             .return_const(FAKE_PATH.to_string());
         mock_file_handle
+    }
+
+    fn fake_card_markdown(decks: &[&str], question: &str, answer: &str) -> String {
+        format!(
+            "---\ntitle:something\ntags: :{}:\n---\n# Question\n{}\n# Answer\n{}\n----\n",
+            decks.join(":"),
+            question,
+            answer,
+        )
+    }
+
+    fn write_fake_card_markdown_files(
+        temp_dir: &assert_fs::TempDir,
+        fake_card_paths_and_markdown: Vec<(&str, String)>,
+    ) {
+        for (path, markdown) in fake_card_paths_and_markdown {
+            temp_dir
+                .child(path)
+                .write_str(markdown.as_str())
+                .expect("Test setup: write_fake_card_files failed!");
+        }
+    }
+
+    fn write_non_card_markdown_files(temp_dir: &assert_fs::TempDir, paths: Vec<&str>) {
+        paths.iter().for_each(|p| {
+            temp_dir
+                .child(p)
+                .write_str("#Some\nmarkdown")
+                .expect("Setup test filesystem failed!");
+        });
+    }
+
+    fn expected_parsed_fields<'a>(
+        decks: &[&'a str],
+        question: &'a str,
+        answer: &'a str,
+    ) -> parser::ParsedCardFields<'a> {
+        parser::ParsedCardFields {
+            question,
+            answer,
+            decks: decks.to_vec(),
+        }
+    }
+
+    #[test]
+    fn try_load_many_cards() {
+        let temp_dir = assert_fs::TempDir::new().unwrap();
+        let fake_notes_dir_path = temp_dir
+            .path()
+            .to_str()
+            .expect("Setup test filesystem failed!");
+        let (path_a, path_b, path_c, path_d) = ("a.md", "b.md", "c.md", "d.md");
+        let (decks_a, decks_b) = (vec!["a", "b"], vec!["b", "c"]);
+        let (question_a, question_b) = ("what?", "who?");
+        let (answer_a, answer_b) = ("this", "that");
+        let malformed_paths = vec![path_c, path_d];
+        write_non_card_markdown_files(&temp_dir, malformed_paths.clone());
+        write_fake_card_markdown_files(
+            &temp_dir,
+            vec![
+                (path_a, fake_card_markdown(&decks_a, question_a, answer_a)),
+                (path_b, fake_card_markdown(&decks_b, question_b, answer_b)),
+            ],
+        );
+        let revision_settings = RevisionSettings::default();
+        let parsed_fields_a = make_fake_parsed_fields(decks_a, question_a, answer_a);
+        let parsed_fields_b = make_fake_parsed_fields(decks_b, question_b, answer_b);
+        let expected_succeeded = [
+            make_expected_card(path_a, &parsed_fields_a, revision_settings.clone()),
+            make_expected_card(path_b, &parsed_fields_b, revision_settings),
+        ];
+        let parsing_config = parser::ParsingConfig::default();
+        let parser = parser::Parser::from(&parsing_config).unwrap();
+        let mut loaded_cards = dbg!(try_load_many(fake_notes_dir_path.into(), &parser).unwrap());
+        loaded_cards.failed.sort();
+        loaded_cards.succeeded.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(expected_succeeded.len(), loaded_cards.succeeded.len());
+        expected_succeeded
+            .iter()
+            .zip(loaded_cards.succeeded)
+            .for_each(|(expected, actual)| assertions::assert_cards_near(expected, &actual));
+
+        assert_eq!(malformed_paths.len(), loaded_cards.failed.len());
+        malformed_paths
+            .iter()
+            .zip(loaded_cards.failed)
+            .for_each(|(expected, actual)| assert_ne!(expected.to_string(), actual));
     }
 
     #[test]
@@ -224,36 +383,35 @@ mod unit_tests {
     }
 
     #[rstest]
-    fn from(successful_file_handle: MockFileHandle) {
+    fn from(successful_file_handle: MockIO) {
         let parsed_fields = make_fake_parsed_fields(vec!["tag"], "what?", "that");
-        let mock_parser = make_mock_parser(FAKE_PATH, Result::Ok(parsed_fields.clone()));
+        let mock_parser = make_mock_parser(FAKE_PATH, anyhow::Result::Ok(parsed_fields.clone()));
         let expected = make_expected_card(FAKE_PATH, &parsed_fields, RevisionSettings::default());
         let actual = Card::from(successful_file_handle, &mock_parser).unwrap();
         assertions::assert_cards_near(&expected, &actual);
     }
 
     #[rstest]
-    fn from_where_parser_fails(successful_file_handle: MockFileHandle) {
-        let parser_error = Result::Err(FAKE_PATH.to_string());
-        let mock_parser = make_mock_parser(FAKE_PATH, parser_error);
+    fn from_where_parser_fails(successful_file_handle: MockIO) {
+        let parser_error = anyhow::Result::Err(ParsingError::DeckParsingError {
+            input: "FAIL".to_owned(),
+        });
+        let mock_parser = make_mock_parser(FAKE_PATH, parser_error.context("Whatever"));
         let actual = Card::from(successful_file_handle, &mock_parser);
         assert!(actual.is_err());
-        assert!(actual
-            .unwrap_err()
-            .to_string()
-            .contains("Unable to parse Card from \"a_path\""));
+        assert!(format!("{:#?}", actual.unwrap_err()).contains("FAIL"));
     }
 
     #[rstest]
-    fn from_where_file_read_fails(failing_file_handle: MockFileHandle) {
-        let unexpected_message = "UNEXPECTED";
-        let mock_parser = make_mock_parser(FAKE_PATH, Result::Err(unexpected_message.to_string()));
-        let expected_message = format!("Unable to read Card from \"{}\"", FAKE_PATH);
+    fn from_where_file_read_fails(failing_file_handle: MockIO) {
+        let parser_result: anyhow::Result<ParsedCardFields, anyhow::Error> =
+            anyhow::Result::Ok(ParsedCardFields::default());
+        let mock_parser = make_mock_parser(FAKE_PATH, parser_result);
+        let expected_message = format!("Unable to parse card at '{}'", FAKE_PATH);
         let actual = Card::from(failing_file_handle, &mock_parser);
         assert!(actual.is_err());
         let actual_err = actual.unwrap_err();
         assert!(actual_err.to_string().contains(&expected_message));
-        assert!(!actual_err.to_string().contains(&unexpected_message));
     }
 
     #[test]
@@ -311,8 +469,10 @@ mod unit_tests {
         #[case] due_date: chrono::DateTime<Utc>,
         #[case] expectation: Expect<i32>,
     ) {
-        let mut revision_settings = RevisionSettings::default();
-        revision_settings.due = due_date;
+        let revision_settings = RevisionSettings {
+            due: due_date,
+            ..Default::default()
+        };
         let fields = make_fake_parsed_fields(vec!["deck"], "q?", "ans");
         let card = make_expected_card("some-identifier", &fields, revision_settings);
         assert_truthy(expectation, card.is_due());

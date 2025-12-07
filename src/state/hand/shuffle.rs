@@ -8,7 +8,7 @@ use rand::thread_rng;
 
 use crate::state::card::Card;
 
-pub fn shuffle_cards(iterable: Vec<Card>) -> Vec<Card> {
+pub fn shuffle_cards(iterable: Vec<&Card>) -> Vec<&Card> {
     #[cfg(test)]
     let mut random_number_generator = StepRng::new(0, 0);
     #[cfg(not(test))]
@@ -36,11 +36,11 @@ mod unit_tests {
 
     #[test]
     fn shuffling_cards() {
-        let card_paths = vec!["octopus", "squid", "cuttlefish", "nautilus"];
+        let card_paths = ["octopus", "squid", "cuttlefish", "nautilus"];
         let deck_id = "cephelapoda";
         let cards: Vec<Card> = card_paths.iter().map(|p| make_fake_card(p)).collect();
         let expected_paths = vec!["squid", "cuttlefish", "nautilus", "octopus"];
-        let actual_cards = shuffle_cards(cards);
+        let actual_cards = shuffle_cards(cards.iter().collect());
         let actual_paths: Vec<&str> = actual_cards.iter().map(|c| &c.path[..]).collect();
         assert_eq!(expected_paths, actual_paths);
     }
