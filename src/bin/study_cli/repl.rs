@@ -70,7 +70,7 @@ impl Default for App {
     }
 }
 
-fn read_score_callback<B: Backend>(
+fn run_study_hand<B: Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
     deck: &Deck,
@@ -79,7 +79,7 @@ fn read_score_callback<B: Backend>(
     n_remaining: usize,
 ) -> Result<Score> {
     loop {
-        terminal.draw(|f| ui(f, app, deck, card, n_due, n_remaining))?;
+        terminal.draw(|f| study_card_view(f, app, deck, card, n_due, n_remaining))?;
         if let Event::Key(key) = event::read()? {
             match key.code {
                 KeyCode::Char('1') => {
@@ -120,18 +120,37 @@ fn read_score_callback<B: Backend>(
     }
 }
 
-pub fn run(deck: &Deck, hand: Hand) -> Result<Vec<Card>> {
+fn run_nothing_due<B: Backend>(terminal: &mut Terminal<B>, deck: &Deck) -> Result<()> {
+    loop {
+        terminal.draw(|f| no_cards_due_view(f, deck))?;
+        if let Event::Key(key) = event::read()? {
+            match key.code {
+                KeyCode::Char('Q') | KeyCode::Char('q') => {
+                    return Err(HandError::ReceivedExitApplicationSignal.into())
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+pub fn run(deck: &Deck, hand: Option<Hand>) -> Result<Vec<Card>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    let revised_cards = match hand {
+        None => run_nothing_due(&mut terminal, deck).map(|_| vec![]),
+        Some(hand) => {
+            let n_due = hand.number_of_due_cards();
+            let mut app = App::default();
 
-    let n_due = hand.number_of_due_cards();
-    let mut app = App::default();
-    let revised_cards = hand.revise_until_none_fail(|card, n_remaining| {
-        read_score_callback(&mut terminal, &mut app, deck, card, n_due, n_remaining)
-    });
+            hand.revise_until_none_fail(|card, n_remaining| {
+                run_study_hand(&mut terminal, &mut app, deck, card, n_due, n_remaining)
+            })
+        }
+    };
 
     disable_raw_mode()?;
     execute!(
@@ -152,7 +171,8 @@ fn styled_title(text: &str) -> Span<'_> {
             .add_modifier(Modifier::BOLD),
     )
 }
-fn ui<B: Backend>(
+
+fn study_card_view<B: Backend>(
     f: &mut Frame<B>,
     app: &App,
     deck: &Deck,
@@ -214,11 +234,11 @@ fn ui<B: Backend>(
     let answer_instruction = Span::from("Reveal the answer to the current question.");
     let quit_command = Span::styled("[Q] QUIT: ", Style::default().add_modifier(Modifier::BOLD));
     let quit_instruction = Span::from("Exit the application.");
-    let reviseing_question_instructions = vec![
+    let revising_question_instructions = vec![
         Spans::from(vec![answer_command, answer_instruction]),
         Spans::from(vec![quit_command.clone(), quit_instruction.clone()]),
     ];
-    let reviseing_answer_instructions = vec![
+    let revising_answer_instructions = vec![
         Spans::from(vec![fail_command, fail_instruction]),
         Spans::from(vec![hard_command, hard_instruction]),
         Spans::from(vec![pass_command, pass_instruction]),
@@ -226,8 +246,8 @@ fn ui<B: Backend>(
         Spans::from(vec![quit_command, quit_instruction]),
     ];
     let instructions = match app.revision_mode {
-        RevisingMode::Question => reviseing_question_instructions,
-        RevisingMode::Answer => reviseing_answer_instructions,
+        RevisingMode::Question => revising_question_instructions,
+        RevisingMode::Answer => revising_answer_instructions,
     };
     let commands_view = Paragraph::new(Text::from(instructions))
         .block(
@@ -272,6 +292,91 @@ fn ui<B: Backend>(
             if n_revised == 1.0 { "" } else { "s" }
         ))
         .percent(progress as u16);
+
+    f.render_widget(question_answer_view, horizontal_layout[0]);
+    f.render_widget(progress_view, vertical_layout[1]);
+    f.render_widget(deck_view, info_view[0]);
+    f.render_widget(commands_view, info_view[1]);
+}
+
+fn no_cards_due_view<B: Backend>(f: &mut Frame<B>, deck: &Deck) {
+    let vertical_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(10)
+        .horizontal_margin(20)
+        .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
+        .split(f.size());
+
+    let horizontal_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)].as_ref())
+        .split(vertical_layout[0]);
+
+    let info_view = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(horizontal_layout[1]);
+
+    let bold_style = Style::default().add_modifier(Modifier::BOLD);
+    let deck_name_info_prefix = Span::styled("CURRENTLY REVISING DECK:       ", bold_style);
+    let deck_name_info_suffix = Span::from(deck.name.clone());
+    let n_cards_in_deck_prefix = Span::styled("TOTAL NUMBER OF CARDS IN DECK: ", bold_style);
+    let n_cards_in_deck_suffix = Span::from(format!("{}", deck.card_paths.len()));
+    let n_cards_to_revise_prefix = Span::styled("NUMBER OF CARDS TO BE REVISED: ", bold_style);
+    let n_cards_to_revise_suffix = Span::from("0");
+
+    let deck_view = Paragraph::new(Text::from(vec![
+        Spans::from(vec![deck_name_info_prefix, deck_name_info_suffix]),
+        Spans::from(vec![n_cards_in_deck_prefix, n_cards_in_deck_suffix]),
+        Spans::from(vec![n_cards_to_revise_prefix, n_cards_to_revise_suffix]),
+    ]))
+    .block(
+        Block::default()
+            .title(styled_title("DECK INFO"))
+            .borders(Borders::ALL),
+    )
+    .alignment(Alignment::Left)
+    .wrap(Wrap { trim: true });
+
+    let quit_command = Span::styled("[Q] QUIT: ", Style::default().add_modifier(Modifier::BOLD));
+    let quit_instruction = Span::from("Exit the application.");
+    let quit_instructions = vec![Spans::from(vec![
+        quit_command.clone(),
+        quit_instruction.clone(),
+    ])];
+    let commands_view = Paragraph::new(Text::from(quit_instructions))
+        .block(
+            Block::default()
+                .title(styled_title("COMMANDS"))
+                .borders(Borders::ALL),
+        )
+        .wrap(Wrap { trim: true });
+
+    let question_answer_view = Paragraph::new(highlight(
+        "There's nothing to review - you're all caught up!",
+    ))
+    .block(
+        Block::default()
+            .title(styled_title("NO CARDS DUE"))
+            .borders(Borders::ALL),
+    )
+    .alignment(Alignment::Left)
+    .wrap(Wrap { trim: true });
+
+    let progress_view = Gauge::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(styled_title("QUEUE PROGRESS")),
+        )
+        .gauge_style(
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
+        .label("0 cards revised")
+        .percent(100);
 
     f.render_widget(question_answer_view, horizontal_layout[0]);
     f.render_widget(progress_view, vertical_layout[1]);
