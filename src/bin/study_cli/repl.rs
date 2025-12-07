@@ -70,6 +70,35 @@ impl Default for App {
     }
 }
 
+pub fn run(deck: &Deck, hand: Option<Hand>) -> Result<Vec<Card>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let revised_cards = match hand {
+        None => run_nothing_due(&mut terminal, deck).map(|_| vec![]),
+        Some(hand) => {
+            let n_due = hand.number_of_due_cards();
+            let mut app = App::default();
+
+            hand.revise_until_none_fail(|card, n_remaining| {
+                run_study_hand(&mut terminal, &mut app, deck, card, n_due, n_remaining)
+            })
+        }
+    };
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    revised_cards
+}
+
 fn run_study_hand<B: Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
@@ -134,35 +163,6 @@ fn run_nothing_due<B: Backend>(terminal: &mut Terminal<B>, deck: &Deck) -> Resul
     }
 }
 
-pub fn run(deck: &Deck, hand: Option<Hand>) -> Result<Vec<Card>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    let revised_cards = match hand {
-        None => run_nothing_due(&mut terminal, deck).map(|_| vec![]),
-        Some(hand) => {
-            let n_due = hand.number_of_due_cards();
-            let mut app = App::default();
-
-            hand.revise_until_none_fail(|card, n_remaining| {
-                run_study_hand(&mut terminal, &mut app, deck, card, n_due, n_remaining)
-            })
-        }
-    };
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    revised_cards
-}
-
 fn styled_title(text: &str) -> Span<'_> {
     Span::styled(
         format!(" {} ", text),
@@ -172,20 +172,20 @@ fn styled_title(text: &str) -> Span<'_> {
     )
 }
 
-fn study_card_view<B: Backend>(
-    f: &mut Frame<B>,
-    app: &App,
-    deck: &Deck,
-    card: &Card,
-    n_due: usize,
-    n_remaining: usize,
-) {
+struct CommonLayout {
+    main_content: tui::layout::Rect,
+    progress: tui::layout::Rect,
+    deck_info: tui::layout::Rect,
+    commands: tui::layout::Rect,
+}
+
+fn create_common_layout(frame_size: tui::layout::Rect) -> CommonLayout {
     let vertical_layout = Layout::default()
         .direction(Direction::Vertical)
         .margin(10)
         .horizontal_margin(20)
         .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
-        .split(f.size());
+        .split(frame_size);
 
     let horizontal_layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -197,6 +197,15 @@ fn study_card_view<B: Backend>(
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
         .split(horizontal_layout[1]);
 
+    CommonLayout {
+        main_content: horizontal_layout[0],
+        progress: vertical_layout[1],
+        deck_info: info_view[0],
+        commands: info_view[1],
+    }
+}
+
+fn create_deck_info_widget(deck: &Deck, n_due: usize) -> Paragraph<'_> {
     let bold_style = Style::default().add_modifier(Modifier::BOLD);
     let deck_name_info_prefix = Span::styled("CURRENTLY REVISING DECK:       ", bold_style);
     let deck_name_info_suffix = Span::from(deck.name.clone());
@@ -205,7 +214,7 @@ fn study_card_view<B: Backend>(
     let n_cards_to_revise_prefix = Span::styled("NUMBER OF CARDS TO BE REVISED: ", bold_style);
     let n_cards_to_revise_suffix = Span::from(format!("{}", n_due));
 
-    let deck_view = Paragraph::new(Text::from(vec![
+    Paragraph::new(Text::from(vec![
         Spans::from(vec![deck_name_info_prefix, deck_name_info_suffix]),
         Spans::from(vec![n_cards_in_deck_prefix, n_cards_in_deck_suffix]),
         Spans::from(vec![n_cards_to_revise_prefix, n_cards_to_revise_suffix]),
@@ -216,7 +225,55 @@ fn study_card_view<B: Backend>(
             .borders(Borders::ALL),
     )
     .alignment(Alignment::Left)
-    .wrap(Wrap { trim: true });
+    .wrap(Wrap { trim: true })
+}
+
+fn create_quit_command_span() -> (Span<'static>, Span<'static>) {
+    let quit_command = Span::styled("[Q] QUIT: ", Style::default().add_modifier(Modifier::BOLD));
+    let quit_instruction = Span::from("Exit the application.");
+    (quit_command, quit_instruction)
+}
+
+fn create_progress_gauge(n_due: usize, n_remaining: usize) -> Gauge<'static> {
+    let n_due = n_due as f64;
+    let n_remaining = n_remaining as f64;
+    let n_revised = n_due - n_remaining;
+    let progress = if n_due > 0.0 {
+        (n_revised / n_due) * 100.0
+    } else {
+        100.0
+    };
+
+    Gauge::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(styled_title("QUEUE PROGRESS")),
+        )
+        .gauge_style(
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
+        .label(format!(
+            "{} card{} revised",
+            n_revised,
+            if n_revised == 1.0 { "" } else { "s" }
+        ))
+        .percent(progress as u16)
+}
+
+fn study_card_view<B: Backend>(
+    f: &mut Frame<B>,
+    app: &App,
+    deck: &Deck,
+    card: &Card,
+    n_due: usize,
+    n_remaining: usize,
+) {
+    let layout = create_common_layout(f.size());
+    let deck_view = create_deck_info_widget(deck, n_due);
 
     let fail_command = Span::styled("[1] FAIL: ", Style::default().add_modifier(Modifier::BOLD));
     let fail_instruction =
@@ -232,8 +289,8 @@ fn study_card_view<B: Backend>(
         Style::default().add_modifier(Modifier::BOLD),
     );
     let answer_instruction = Span::from("Reveal the answer to the current question.");
-    let quit_command = Span::styled("[Q] QUIT: ", Style::default().add_modifier(Modifier::BOLD));
-    let quit_instruction = Span::from("Exit the application.");
+    let (quit_command, quit_instruction) = create_quit_command_span();
+
     let revising_question_instructions = vec![
         Spans::from(vec![answer_command, answer_instruction]),
         Spans::from(vec![quit_command.clone(), quit_instruction.clone()]),
@@ -270,80 +327,20 @@ fn study_card_view<B: Backend>(
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: true });
 
-    let n_due = n_due as f64;
-    let n_remaining = n_remaining as f64;
-    let n_revised = n_due - n_remaining;
-    let progress = (n_revised / n_due) * 100.0;
-    let progress_view = Gauge::default()
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(styled_title("QUEUE PROGRESS")),
-        )
-        .gauge_style(
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Black)
-                .add_modifier(Modifier::BOLD),
-        )
-        .label(format!(
-            "{} card{} revised",
-            n_revised,
-            if n_revised == 1.0 { "" } else { "s" }
-        ))
-        .percent(progress as u16);
+    let progress_view = create_progress_gauge(n_due, n_remaining);
 
-    f.render_widget(question_answer_view, horizontal_layout[0]);
-    f.render_widget(progress_view, vertical_layout[1]);
-    f.render_widget(deck_view, info_view[0]);
-    f.render_widget(commands_view, info_view[1]);
+    f.render_widget(question_answer_view, layout.main_content);
+    f.render_widget(progress_view, layout.progress);
+    f.render_widget(deck_view, layout.deck_info);
+    f.render_widget(commands_view, layout.commands);
 }
 
 fn no_cards_due_view<B: Backend>(f: &mut Frame<B>, deck: &Deck) {
-    let vertical_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(10)
-        .horizontal_margin(20)
-        .constraints([Constraint::Percentage(90), Constraint::Percentage(10)].as_ref())
-        .split(f.size());
+    let layout = create_common_layout(f.size());
+    let deck_view = create_deck_info_widget(deck, 0);
 
-    let horizontal_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)].as_ref())
-        .split(vertical_layout[0]);
-
-    let info_view = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(horizontal_layout[1]);
-
-    let bold_style = Style::default().add_modifier(Modifier::BOLD);
-    let deck_name_info_prefix = Span::styled("CURRENTLY REVISING DECK:       ", bold_style);
-    let deck_name_info_suffix = Span::from(deck.name.clone());
-    let n_cards_in_deck_prefix = Span::styled("TOTAL NUMBER OF CARDS IN DECK: ", bold_style);
-    let n_cards_in_deck_suffix = Span::from(format!("{}", deck.card_paths.len()));
-    let n_cards_to_revise_prefix = Span::styled("NUMBER OF CARDS TO BE REVISED: ", bold_style);
-    let n_cards_to_revise_suffix = Span::from("0");
-
-    let deck_view = Paragraph::new(Text::from(vec![
-        Spans::from(vec![deck_name_info_prefix, deck_name_info_suffix]),
-        Spans::from(vec![n_cards_in_deck_prefix, n_cards_in_deck_suffix]),
-        Spans::from(vec![n_cards_to_revise_prefix, n_cards_to_revise_suffix]),
-    ]))
-    .block(
-        Block::default()
-            .title(styled_title("DECK INFO"))
-            .borders(Borders::ALL),
-    )
-    .alignment(Alignment::Left)
-    .wrap(Wrap { trim: true });
-
-    let quit_command = Span::styled("[Q] QUIT: ", Style::default().add_modifier(Modifier::BOLD));
-    let quit_instruction = Span::from("Exit the application.");
-    let quit_instructions = vec![Spans::from(vec![
-        quit_command.clone(),
-        quit_instruction.clone(),
-    ])];
+    let (quit_command, quit_instruction) = create_quit_command_span();
+    let quit_instructions = vec![Spans::from(vec![quit_command, quit_instruction])];
     let commands_view = Paragraph::new(Text::from(quit_instructions))
         .block(
             Block::default()
@@ -363,23 +360,10 @@ fn no_cards_due_view<B: Backend>(f: &mut Frame<B>, deck: &Deck) {
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: true });
 
-    let progress_view = Gauge::default()
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(styled_title("QUEUE PROGRESS")),
-        )
-        .gauge_style(
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Black)
-                .add_modifier(Modifier::BOLD),
-        )
-        .label("0 cards revised")
-        .percent(100);
+    let progress_view = create_progress_gauge(0, 0);
 
-    f.render_widget(question_answer_view, horizontal_layout[0]);
-    f.render_widget(progress_view, vertical_layout[1]);
-    f.render_widget(deck_view, info_view[0]);
-    f.render_widget(commands_view, info_view[1]);
+    f.render_widget(question_answer_view, layout.main_content);
+    f.render_widget(progress_view, layout.progress);
+    f.render_widget(deck_view, layout.deck_info);
+    f.render_widget(commands_view, layout.commands);
 }
