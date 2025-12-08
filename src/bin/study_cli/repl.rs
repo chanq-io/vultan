@@ -12,21 +12,21 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+    Frame, Terminal,
+};
 use std::io;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect_tui::into_span;
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans, Text},
-    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
-    Frame, Terminal,
-};
 
-fn highlight(s: &str) -> tui::text::Text<'_> {
+fn highlight(s: &str) -> ratatui::text::Text<'_> {
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
     let syntax = ps.find_syntax_by_extension("md").unwrap();
@@ -41,13 +41,13 @@ fn highlight(s: &str) -> tui::text::Text<'_> {
     Text::from(
         s.lines()
             .map(|line| {
-                let line_spans: Vec<Span> = h
-                    .highlight_line(line, &ps)
-                    .unwrap()
-                    .into_iter()
-                    .filter_map(|segment| into_span(segment).ok())
-                    .collect();
-                Spans::from(line_spans)
+                Line::from(
+                    h.highlight_line(line, &ps)
+                        .unwrap()
+                        .into_iter()
+                        .filter_map(|segment| into_span(segment).ok())
+                        .collect::<Vec<Span>>(),
+                )
             })
             .collect_vec(),
     )
@@ -173,13 +173,13 @@ fn styled_title(text: &str) -> Span<'_> {
 }
 
 struct CommonLayout {
-    main_content: tui::layout::Rect,
-    progress: tui::layout::Rect,
-    deck_info: tui::layout::Rect,
-    commands: tui::layout::Rect,
+    main_content: ratatui::layout::Rect,
+    progress: ratatui::layout::Rect,
+    deck_info: ratatui::layout::Rect,
+    commands: ratatui::layout::Rect,
 }
 
-fn create_common_layout(frame_size: tui::layout::Rect) -> CommonLayout {
+fn create_common_layout(frame_size: ratatui::layout::Rect) -> CommonLayout {
     let vertical_layout = Layout::default()
         .direction(Direction::Vertical)
         .margin(10)
@@ -215,9 +215,9 @@ fn create_deck_info_widget(deck: &Deck, n_due: usize) -> Paragraph<'_> {
     let n_cards_to_revise_suffix = Span::from(format!("{}", n_due));
 
     Paragraph::new(Text::from(vec![
-        Spans::from(vec![deck_name_info_prefix, deck_name_info_suffix]),
-        Spans::from(vec![n_cards_in_deck_prefix, n_cards_in_deck_suffix]),
-        Spans::from(vec![n_cards_to_revise_prefix, n_cards_to_revise_suffix]),
+        Line::from(vec![deck_name_info_prefix, deck_name_info_suffix]),
+        Line::from(vec![n_cards_in_deck_prefix, n_cards_in_deck_suffix]),
+        Line::from(vec![n_cards_to_revise_prefix, n_cards_to_revise_suffix]),
     ]))
     .block(
         Block::default()
@@ -256,23 +256,19 @@ fn create_progress_gauge(n_due: usize, n_remaining: usize) -> Gauge<'static> {
                 .bg(Color::Black)
                 .add_modifier(Modifier::BOLD),
         )
-        .label(format!(
-            "{} card{} revised",
-            n_revised,
-            if n_revised == 1.0 { "" } else { "s" }
-        ))
+        .label(format!("{} / {}", n_revised, n_due))
         .percent(progress as u16)
 }
 
-fn study_card_view<B: Backend>(
-    f: &mut Frame<B>,
+fn study_card_view(
+    f: &mut Frame,
     app: &App,
     deck: &Deck,
     card: &Card,
     n_due: usize,
     n_remaining: usize,
 ) {
-    let layout = create_common_layout(f.size());
+    let layout = create_common_layout(f.area());
     let deck_view = create_deck_info_widget(deck, n_due);
 
     let fail_command = Span::styled("[1] FAIL: ", Style::default().add_modifier(Modifier::BOLD));
@@ -292,15 +288,15 @@ fn study_card_view<B: Backend>(
     let (quit_command, quit_instruction) = create_quit_command_span();
 
     let revising_question_instructions = vec![
-        Spans::from(vec![answer_command, answer_instruction]),
-        Spans::from(vec![quit_command.clone(), quit_instruction.clone()]),
+        Line::from(vec![answer_command, answer_instruction]),
+        Line::from(vec![quit_command.clone(), quit_instruction.clone()]),
     ];
     let revising_answer_instructions = vec![
-        Spans::from(vec![fail_command, fail_instruction]),
-        Spans::from(vec![hard_command, hard_instruction]),
-        Spans::from(vec![pass_command, pass_instruction]),
-        Spans::from(vec![easy_command, easy_instruction]),
-        Spans::from(vec![quit_command, quit_instruction]),
+        Line::from(vec![fail_command, fail_instruction]),
+        Line::from(vec![hard_command, hard_instruction]),
+        Line::from(vec![pass_command, pass_instruction]),
+        Line::from(vec![easy_command, easy_instruction]),
+        Line::from(vec![quit_command, quit_instruction]),
     ];
     let instructions = match app.revision_mode {
         RevisingMode::Question => revising_question_instructions,
@@ -335,12 +331,12 @@ fn study_card_view<B: Backend>(
     f.render_widget(commands_view, layout.commands);
 }
 
-fn no_cards_due_view<B: Backend>(f: &mut Frame<B>, deck: &Deck) {
-    let layout = create_common_layout(f.size());
+fn no_cards_due_view(f: &mut Frame, deck: &Deck) {
+    let layout = create_common_layout(f.area());
     let deck_view = create_deck_info_widget(deck, 0);
 
     let (quit_command, quit_instruction) = create_quit_command_span();
-    let quit_instructions = vec![Spans::from(vec![quit_command, quit_instruction])];
+    let quit_instructions = vec![Line::from(vec![quit_command, quit_instruction])];
     let commands_view = Paragraph::new(Text::from(quit_instructions))
         .block(
             Block::default()

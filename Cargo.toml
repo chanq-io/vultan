@@ -9,8 +9,8 @@ authors = ["Pierre Chanquion <pierre@chanq.io>"]
 [dependencies]
 anyhow               = { version = "1.0.66" }
 clap                 = { version = "4.1.4" , features = ["derive"] }
-chrono               = {version = "0.4", features = ["serde"]}
-crossterm            = { version = "0.25" }
+chrono               = { version = "0.4", features = ["serde"]}
+crossterm            = { version = "0.28.0" }
 custom_error         = { version = "1.9.2" }
 glob                 = { version = "0.3.0" }
 itertools            = { version = "0.10.5" }
@@ -20,8 +20,8 @@ ron                  = { version = "0.8" }
 serde                = { version = "1", features = ["derive"] }
 snafu                = { version = "0.7.2" }
 syntect              = { version = "5.0.0", default-features = false, features = ["default-fancy"] }
-syntect-tui          = { version = "1.0" }
-tui                  = { version = "0.19.0" }
+syntect-tui          = { version = "3.0" }
+ratatui              = { version = "0.29" }
 unicode-segmentation = { version = "1.2" }
 unicode-width        = { version = "0.1" }
 
